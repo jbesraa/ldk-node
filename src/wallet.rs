@@ -2,6 +2,8 @@ use crate::logger::{log_error, log_info, log_trace, Logger};
 
 use crate::Error;
 
+use bitcoin::psbt::Psbt;
+use bitcoincore_rpc::RpcApi;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 
 use lightning::ln::msgs::{DecodeError, UnsignedGossipMessage};
@@ -16,7 +18,7 @@ use lightning::util::message_signing;
 use bdk::blockchain::EsploraBlockchain;
 use bdk::database::BatchDatabase;
 use bdk::wallet::AddressIndex;
-use bdk::FeeRate;
+use bdk::{FeeRate, TransactionDetails};
 use bdk::{SignOptions, SyncOptions};
 
 use bitcoin::bech32::u5;
@@ -164,6 +166,17 @@ where
 
 	pub(crate) fn get_balance(&self) -> Result<bdk::Balance, Error> {
 		Ok(self.inner.lock().unwrap().get_balance()?)
+	}
+
+	pub(crate) fn list_unspent(&self) -> Result<Vec<bdk::LocalUtxo>, Error> {
+		Ok(self.inner.lock().unwrap().list_unspent()?)
+	}
+
+	pub(crate) fn wallet_process_psbt(&self, psbt: &Psbt) -> Result<Psbt, Error> {
+		let wallet = self.inner.lock().unwrap();
+		let mut psbt = psbt.clone();
+		wallet.sign(&mut psbt, SignOptions::default())?;
+		Ok(psbt)
 	}
 
 	/// Send funds to the given address.

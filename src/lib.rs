@@ -83,8 +83,10 @@ mod gossip;
 mod hex_utils;
 pub mod io;
 mod logger;
+mod payjoin;
 mod payment_store;
 mod peer_store;
+mod pj_tx_broadcaster;
 mod sweep;
 mod tx_broadcaster;
 mod types;
@@ -92,6 +94,7 @@ mod types;
 mod uniffi_types;
 mod wallet;
 
+use bdk::TransactionDetails;
 pub use bip39;
 pub use bitcoin;
 pub use lightning;
@@ -100,10 +103,14 @@ pub use lightning_invoice;
 pub use error::Error as NodeError;
 use error::Error;
 
+use ::payjoin::Uri;
 pub use event::Event;
 pub use types::ChannelConfig;
 
+pub use bdk;
 pub use io::utils::generate_entropy_mnemonic;
+
+use crate::payjoin::HttpServer;
 
 #[cfg(feature = "uniffi")]
 use {bip39::Mnemonic, bitcoin::OutPoint, lightning::ln::PaymentSecret, uniffi_types::*};
@@ -145,18 +152,18 @@ use lightning_transaction_sync::EsploraSyncClient;
 use lightning::routing::router::{PaymentParameters, RouteParameters};
 use lightning_invoice::{payment, Bolt11Invoice, Currency};
 
-use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::{hashes::sha256::Hash as Sha256, Amount};
 
 use bitcoin::{Address, Network, Txid};
 
 use rand::Rng;
 
-use std::default::Default;
 use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
+use std::{default::Default, str::FromStr};
 
 #[cfg(feature = "uniffi")]
 uniffi::include_scaffolding!("ldk_node");
@@ -772,6 +779,16 @@ impl<K: KVStore + Sync + Send + 'static> Node<K> {
 		self.runtime.read().unwrap().is_some()
 	}
 
+	/// Request Payjoin Payment
+	pub fn payjoin_uri(&self) -> Result<String, Error> {
+		let address = self.wallet.get_new_address()?;
+		let amount = Amount::from_sat(1000);
+		let pj = "https://localhost:3227/payjoin";
+		let pj_uri_string = format!("{}?amount={}&pj={}", address.to_qr_uri(), amount.to_btc(), pj);
+		assert!(Uri::from_str(&pj_uri_string).is_ok());
+		Ok(pj_uri_string)
+	}
+
 	/// Disconnects all peers, stops all running background tasks, and shuts down [`Node`].
 	///
 	/// After this returns most API methods will return [`Error::NotRunning`].
@@ -854,6 +871,18 @@ impl<K: KVStore + Sync + Send + 'static> Node<K> {
 	/// Retrieve the currently spendable on-chain balance in satoshis.
 	pub fn spendable_onchain_balance_sats(&self) -> Result<u64, Error> {
 		Ok(self.wallet.get_balance().map(|bal| bal.get_spendable())?)
+	}
+
+	/// List wallet onchain transactions
+	pub fn list_onchain_transactions(&self) -> Result<Vec<TransactionDetails>, Error> {
+		self.wallet.list_transactions()
+	}
+
+	/// Send an on-chain payment to the given address.
+	pub fn send_out(
+		&self, address: &Address, amount_sat: u64, feerate: u32,
+	) -> Result<Txid, Error> {
+		self.wallet.send_out(address, amount_sat * 1000, feerate)
 	}
 
 	/// Retrieve the current total on-chain balance in satoshis.
