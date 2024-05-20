@@ -3,6 +3,7 @@ use crate::logger::{log_error, log_info, log_trace, Logger};
 use crate::config::BDK_WALLET_SYNC_TIMEOUT_SECS;
 use crate::Error;
 
+use bitcoin::psbt::Psbt;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 
 use lightning::events::bump_transaction::{Utxo, WalletSource};
@@ -147,6 +148,41 @@ where
 		self.propagate_result_to_subscribers(res);
 
 		res
+	}
+
+	pub(crate) fn build_payjoin_transaction(
+		&self, output_script: ScriptBuf, value_sats: u64,
+	) -> Result<Psbt, Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		let network = locked_wallet.network();
+		let fee_rate = match network {
+			bitcoin::Network::Regtest => 1000.0,
+			_ => self
+				.fee_estimator
+				.get_est_sat_per_1000_weight(ConfirmationTarget::OutputSpendingFee) as f32,
+		};
+		let fee_rate = FeeRate::from_sat_per_kwu(fee_rate);
+		let locked_wallet = self.inner.lock().unwrap();
+		let mut tx_builder = locked_wallet.build_tx();
+		tx_builder.add_recipient(output_script, value_sats).fee_rate(fee_rate).enable_rbf();
+		let mut psbt = match tx_builder.finish() {
+			Ok((psbt, _)) => {
+				log_trace!(self.logger, "Created Payjoin transaction: {:?}", psbt);
+				psbt
+			},
+			Err(err) => {
+				log_error!(self.logger, "Failed to create Payjoin transaction: {}", err);
+				return Err(err.into());
+			},
+		};
+		locked_wallet.sign(&mut psbt, SignOptions::default())?;
+		Ok(psbt)
+	}
+
+	pub(crate) fn sign_transaction(&self, psbt: &mut Psbt) -> Result<bool, Error> {
+		let wallet = self.inner.lock().unwrap();
+		let is_signed = wallet.sign(psbt, SignOptions::default())?;
+		Ok(is_signed)
 	}
 
 	pub(crate) fn create_funding_transaction(
