@@ -89,6 +89,7 @@ pub mod io;
 mod liquidity;
 mod logger;
 mod message_handler;
+mod payjoin_channel_scheduler;
 mod payjoin_receiver;
 pub mod payment;
 mod peer_store;
@@ -726,6 +727,7 @@ impl Node {
 			Arc::clone(&self.output_sweeper),
 			Arc::clone(&self.network_graph),
 			Arc::clone(&self.payment_store),
+			self.payjoin_receiver.clone(),
 			Arc::clone(&self.peer_store),
 			Arc::clone(&self.runtime),
 			Arc::clone(&self.logger),
@@ -1114,6 +1116,9 @@ impl Node {
 			Arc::clone(&self.logger),
 			Arc::clone(&self.wallet),
 			Arc::clone(&self.tx_broadcaster),
+			Arc::clone(&self.peer_store),
+			Arc::clone(&self.channel_manager),
+			Arc::clone(&self.connection_manager),
 		)
 	}
 
@@ -1136,6 +1141,9 @@ impl Node {
 			Arc::clone(&self.logger),
 			Arc::clone(&self.wallet),
 			Arc::clone(&self.tx_broadcaster),
+			Arc::clone(&self.peer_store),
+			Arc::clone(&self.channel_manager),
+			Arc::clone(&self.connection_manager),
 		))
 	}
 
