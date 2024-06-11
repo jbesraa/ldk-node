@@ -19,7 +19,7 @@ use lightning::util::message_signing;
 use bdk::blockchain::EsploraBlockchain;
 use bdk::database::BatchDatabase;
 use bdk::wallet::AddressIndex;
-use bdk::{Balance, FeeRate};
+use bdk::{Balance, FeeRate, LocalUtxo};
 use bdk::{SignOptions, SyncOptions};
 
 use bitcoin::address::{Payload, WitnessVersion};
@@ -37,6 +37,7 @@ use bitcoin::{ScriptBuf, Transaction, TxOut, Txid};
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 enum WalletSyncStatus {
@@ -162,7 +163,6 @@ where
 				.get_est_sat_per_1000_weight(ConfirmationTarget::OutputSpendingFee) as f32,
 		};
 		let fee_rate = FeeRate::from_sat_per_kwu(fee_rate);
-		let locked_wallet = self.inner.lock().unwrap();
 		let mut tx_builder = locked_wallet.build_tx();
 		tx_builder.add_recipient(output_script, value_sats).fee_rate(fee_rate).enable_rbf();
 		let mut psbt = match tx_builder.finish() {
@@ -203,10 +203,48 @@ where
 				}
 			}
 		}
-
 		let wallet = self.inner.lock().unwrap();
 		let is_signed = wallet.sign(payjoin_proposal_psbt, SignOptions::default())?;
 		Ok(is_signed)
+	}
+
+	// Returns a list of unspent outputs that can be used as inputs to improve the privacy of a
+	// payjoin transaction.
+	pub(crate) fn payjoin_receiver_candidate_input(
+		&self,
+	) -> Result<(HashMap<bitcoin::Amount, bitcoin::OutPoint>, Vec<LocalUtxo>), Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		let utxo_set = locked_wallet.list_unspent()?;
+		let candidate_inputs = utxo_set
+			.iter()
+			.filter_map(|utxo| {
+				if !utxo.is_spent {
+					Some((bitcoin::Amount::from_sat(utxo.txout.value), utxo.outpoint))
+				} else {
+					None
+				}
+			})
+			.collect();
+		Ok((candidate_inputs, utxo_set))
+	}
+	pub(crate) fn prepare_payjoin_proposal(&self, mut psbt: Psbt) -> Result<Psbt, Error> {
+		let wallet = self.inner.lock().unwrap();
+		let mut sign_options = SignOptions::default();
+		sign_options.trust_witness_utxo = true;
+		wallet.sign(&mut psbt, sign_options)?;
+		// Clear derivation paths from the PSBT as required by BIP78/BIP77
+		psbt.inputs.iter_mut().for_each(|i| {
+			i.bip32_derivation = BTreeMap::new();
+		});
+		psbt.outputs.iter_mut().for_each(|o| {
+			o.bip32_derivation = BTreeMap::new();
+		});
+		Ok(psbt)
+	}
+
+	pub(crate) fn is_mine(&self, script: &ScriptBuf) -> Result<bool, Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		Ok(locked_wallet.is_mine(script)?)
 	}
 
 	pub(crate) fn create_funding_transaction(

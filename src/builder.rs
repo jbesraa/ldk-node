@@ -12,6 +12,7 @@ use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
 use crate::payment::payjoin::send::PayjoinSender;
+use crate::payjoin_receiver::PayjoinReceiver;
 use crate::payment::store::PaymentStore;
 use crate::peer_store::PeerStore;
 use crate::tx_broadcaster::TransactionBroadcaster;
@@ -96,7 +97,9 @@ struct LiquiditySourceConfig {
 
 #[derive(Debug, Clone)]
 struct PayjoinConfig {
+	payjoin_directory: payjoin::Url,
 	payjoin_relay: payjoin::Url,
+	ohttp_keys: Option<payjoin::OhttpKeys>,
 }
 
 impl Default for LiquiditySourceConfig {
@@ -263,10 +266,19 @@ impl NodeBuilder {
 	}
 
 	/// Configures the [`Node`] instance to enable payjoin transactions.
-	pub fn set_payjoin_config(&mut self, payjoin_relay: String) -> Result<&mut Self, BuildError> {
-		let payjoin_relay =
-			payjoin::Url::parse(&payjoin_relay).map_err(|_| BuildError::InvalidPayjoinConfig)?;
-		self.payjoin_config = Some(PayjoinConfig { payjoin_relay });
+	pub fn set_payjoin_config(
+		&mut self, payjoin_directory: String, payjoin_relay: String, ohttp_keys: Option<String>,
+	) -> Result<&mut Self, BuildError> {
+		let payjoin_relay = payjoin::Url::parse(&payjoin_relay).map_err(|_| BuildError::InvalidPayjoinConfig)?;
+		let payjoin_directory = payjoin::Url::parse(&payjoin_directory).map_err(|_| BuildError::InvalidPayjoinConfig)?;
+		let ohttp_keys = if let Some(ohttp_keys) = ohttp_keys {
+			let keys = match payjoin::OhttpKeys::decode(ohttp_keys.as_bytes()) {
+				Ok(keys) => keys,
+				Err(_) => return Err(BuildError::InvalidPayjoinConfig),
+			};
+			Some(keys)
+		} else { None };
+		self.payjoin_config = Some(PayjoinConfig { payjoin_directory, payjoin_relay, ohttp_keys });
 		Ok(self)
 	}
 
@@ -998,10 +1010,18 @@ fn build_with_store_internal(
 	let (event_handling_stopped_sender, _) = tokio::sync::watch::channel(());
 
 	let mut payjoin_sender = None;
+	let mut payjoin_receiver = None;
 	if let Some(pj_config) = payjoin_config {
 		payjoin_sender = Some(Arc::new(PayjoinSender::new(
 			Arc::clone(&logger),
 			pj_config.payjoin_relay.clone(),
+		)));
+		payjoin_receiver = Some(Arc::new(PayjoinReceiver::new(
+			Arc::clone(&logger),
+			Arc::clone(&wallet),
+			pj_config.payjoin_directory.clone(),
+			pj_config.payjoin_relay.clone(),
+			pj_config.ohttp_keys.clone(),
 		)));
 	}
 
@@ -1027,6 +1047,7 @@ fn build_with_store_internal(
 		chain_monitor,
 		output_sweeper,
 		payjoin_sender,
+		payjoin_receiver,
 		peer_manager,
 		connection_manager,
 		keys_manager,

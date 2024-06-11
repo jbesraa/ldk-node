@@ -6,6 +6,9 @@ use crate::config::{PAYJOIN_REQUEST_TOTAL_DURATION, PAYJOIN_RETRY_INTERVAL};
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::types::{Broadcaster, EventQueue, Wallet};
 use crate::Event;
+use payjoin::PjUri;
+
+use crate::payjoin_receiver::PayjoinReceiver;
 use crate::{error::Error, Config};
 
 use std::sync::{Arc, RwLock};
@@ -59,6 +62,7 @@ pub(crate) mod send;
 pub struct PayjoinPayment {
 	runtime: Arc<RwLock<Option<tokio::runtime::Runtime>>>,
 	sender: Option<Arc<PayjoinSender>>,
+	receiver: Option<Arc<PayjoinReceiver>>,
 	config: Arc<Config>,
 	event_queue: Arc<EventQueue>,
 	logger: Arc<FilesystemLogger>,
@@ -69,10 +73,11 @@ pub struct PayjoinPayment {
 impl PayjoinPayment {
 	pub(crate) fn new(
 		runtime: Arc<RwLock<Option<tokio::runtime::Runtime>>>, sender: Option<Arc<PayjoinSender>>,
+		receiver: Option<Arc<PayjoinReceiver>>,
 		config: Arc<Config>, event_queue: Arc<EventQueue>, logger: Arc<FilesystemLogger>,
 		wallet: Arc<Wallet>, tx_broadcaster: Arc<Broadcaster>,
 	) -> Self {
-		Self { runtime, sender, config, event_queue, logger, wallet, tx_broadcaster }
+		Self { runtime, sender, receiver, config, event_queue, logger, wallet, tx_broadcaster }
 	}
 
 	/// Send a Payjoin transaction to the address specified in the `payjoin_uri`.
@@ -216,5 +221,24 @@ impl PayjoinPayment {
 		};
 		payjoin_uri.amount = Some(bitcoin::Amount::from_sat(amount_sats));
 		self.send(payjoin_uri.to_string())
+	}
+
+	/// Receive onchain Payjoin transaction.
+	///
+	/// This method will enroll with the configured Payjoin directory if not already,
+	/// and returns a [BIP21] URI pointing to our enrolled subdirectory that you can share with
+	/// Payjoin sender.
+	///
+	/// [BIP21]: https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki
+	pub async fn receive(&self, amount: bitcoin::Amount) -> Result<PjUri, Error> {
+		let rt_lock = self.runtime.read().unwrap();
+		if rt_lock.is_none() {
+			return Err(Error::NotRunning);
+		}
+		if let Some(receiver) = &self.receiver {
+			receiver.receive(amount).await
+		} else {
+			Err(Error::PayjoinReceiverUnavailable)
+		}
 	}
 }
