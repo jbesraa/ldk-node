@@ -11,12 +11,13 @@ use crate::io::sqlite_store::SqliteStore;
 use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
+use crate::payment::payjoin::send::PayjoinSender;
 use crate::payment::store::PaymentStore;
 use crate::peer_store::PeerStore;
 use crate::tx_broadcaster::TransactionBroadcaster;
 use crate::types::{
 	ChainMonitor, ChannelManager, DynStore, GossipSync, Graph, KeysManager, MessageRouter,
-	OnionMessenger, PayjoinSender, PeerManager,
+	OnionMessenger, PeerManager,
 };
 use crate::wallet::Wallet;
 use crate::{LogLevel, Node};
@@ -262,10 +263,9 @@ impl NodeBuilder {
 	}
 
 	/// Configures the [`Node`] instance to enable payjoin transactions.
-	pub fn set_payjoin_config(
-		&mut self, payjoin_relay: String
-	) -> Result<&mut Self, BuildError> {
-		let payjoin_relay = payjoin::Url::parse(&payjoin_relay).map_err(|_| BuildError::InvalidPayjoinConfig)?;
+	pub fn set_payjoin_config(&mut self, payjoin_relay: String) -> Result<&mut Self, BuildError> {
+		let payjoin_relay =
+			payjoin::Url::parse(&payjoin_relay).map_err(|_| BuildError::InvalidPayjoinConfig)?;
 		self.payjoin_config = Some(PayjoinConfig { payjoin_relay });
 		Ok(self)
 	}
@@ -479,12 +479,8 @@ impl ArcedNodeBuilder {
 	}
 
 	/// Configures the [`Node`] instance to enable payjoin transactions.
-	pub fn set_payjoin_config(
-		&self, payjoin_relay: String,
-	)  -> Result<(), BuildError> {
-		self.inner.write().unwrap().set_payjoin_config(
-			payjoin_relay,
-		).map(|_| ())
+	pub fn set_payjoin_config(&self, payjoin_relay: String) -> Result<(), BuildError> {
+		self.inner.write().unwrap().set_payjoin_config(payjoin_relay).map(|_| ())
 	}
 
 	/// Configures the [`Node`] instance to source its gossip data from the given RapidGossipSync
@@ -1004,10 +1000,8 @@ fn build_with_store_internal(
 	let mut payjoin_sender = None;
 	if let Some(pj_config) = payjoin_config {
 		payjoin_sender = Some(Arc::new(PayjoinSender::new(
-					Arc::clone(&logger),
-					Arc::clone(&wallet),
-					Arc::clone(&tx_broadcaster),
-					pj_config.payjoin_relay.clone(),
+			Arc::clone(&logger),
+			pj_config.payjoin_relay.clone(),
 		)));
 	}
 

@@ -89,7 +89,6 @@ pub mod io;
 mod liquidity;
 mod logger;
 mod message_handler;
-mod payjoin_sender;
 pub mod payment;
 mod peer_store;
 mod sweep;
@@ -110,6 +109,7 @@ pub use error::Error as NodeError;
 use error::Error;
 
 pub use event::Event;
+use payment::payjoin::send::PayjoinSender;
 pub use types::ChannelConfig;
 
 pub use io::utils::generate_entropy_mnemonic;
@@ -141,7 +141,7 @@ use payment::{
 use peer_store::{PeerInfo, PeerStore};
 use types::{
 	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, FeeEstimator,
-	Graph, KeysManager, PayjoinSender, PeerManager, Router, Scorer, Sweeper, Wallet,
+	Graph, KeysManager, PeerManager, Router, Scorer, Sweeper, Wallet,
 };
 pub use types::{ChannelDetails, PeerDetails, UserChannelId};
 
@@ -1082,6 +1082,9 @@ impl Node {
 			payjoin_sender.map(Arc::clone),
 			Arc::clone(&self.config),
 			Arc::clone(&self.event_queue),
+			Arc::clone(&self.logger),
+			Arc::clone(&self.wallet),
+			Arc::clone(&self.tx_broadcaster),
 		)
 	}
 
@@ -1099,6 +1102,9 @@ impl Node {
 			payjoin_sender.map(Arc::clone),
 			Arc::clone(&self.config),
 			Arc::clone(&self.event_queue),
+			Arc::clone(&self.logger),
+			Arc::clone(&self.wallet),
+			Arc::clone(&self.tx_broadcaster),
 		))
 	}
 

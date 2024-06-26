@@ -1,11 +1,18 @@
 //! Holds a payment handler allowing to send Payjoin payments.
 
+use lightning::chain::chaininterface::BroadcasterInterface;
+
 use crate::config::{PAYJOIN_REQUEST_TOTAL_DURATION, PAYJOIN_RETRY_INTERVAL};
-use crate::types::{EventQueue, PayjoinSender};
+use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
+use crate::types::{Broadcaster, EventQueue, Wallet};
 use crate::Event;
 use crate::{error::Error, Config};
 
 use std::sync::{Arc, RwLock};
+
+use self::send::PayjoinSender;
+
+pub(crate) mod send;
 
 /// A payment handler allowing to send Payjoin payments.
 ///
@@ -54,14 +61,18 @@ pub struct PayjoinPayment {
 	sender: Option<Arc<PayjoinSender>>,
 	config: Arc<Config>,
 	event_queue: Arc<EventQueue>,
+	logger: Arc<FilesystemLogger>,
+	wallet: Arc<Wallet>,
+	tx_broadcaster: Arc<Broadcaster>,
 }
 
 impl PayjoinPayment {
 	pub(crate) fn new(
 		runtime: Arc<RwLock<Option<tokio::runtime::Runtime>>>, sender: Option<Arc<PayjoinSender>>,
-		config: Arc<Config>, event_queue: Arc<EventQueue>,
+		config: Arc<Config>, event_queue: Arc<EventQueue>, logger: Arc<FilesystemLogger>,
+		wallet: Arc<Wallet>, tx_broadcaster: Arc<Broadcaster>,
 	) -> Self {
-		Self { runtime, sender, config, event_queue }
+		Self { runtime, sender, config, event_queue, logger, wallet, tx_broadcaster }
 	}
 
 	/// Send a Payjoin transaction to the address specified in the `payjoin_uri`.
@@ -91,56 +102,81 @@ impl PayjoinPayment {
 		if rt_lock.is_none() {
 			return Err(Error::NotRunning);
 		}
-		let sender = match &self.sender {
-			Some(sender) => sender,
-			None => return Err(Error::PayjoinUnavailable),
+		let payjoin_sender = self.sender.as_ref().ok_or(Error::PayjoinUnavailable)?;
+		let payjoin_uri =
+			payjoin::Uri::try_from(payjoin_uri).map_err(|_| Error::PayjoinUriInvalid)?;
+		let payjoin_uri =
+			payjoin_uri.require_network(self.config.network).map_err(|_| Error::InvalidNetwork)?;
+		let amount_to_send = match payjoin_uri.amount {
+			Some(amount) => amount,
+			None => return Err(Error::PayjoinRequestMissingAmount),
 		};
-		let payjoin_uri = match payjoin::Uri::try_from(payjoin_uri) {
-			Ok(uri) => uri,
-			Err(_) => return Err(Error::PayjoinUriInvalid),
-		};
-		let payjoin_uri = match payjoin_uri.require_network(self.config.network) {
-			Ok(uri) => uri,
-			Err(_) => return Err(Error::InvalidNetwork),
-		};
-		let sender = Arc::clone(sender);
-		let (mut original_psbt, request, context) =
-			sender.create_payjoin_request(payjoin_uri, None)?;
+		let original_psbt = self.wallet.build_payjoin_transaction(
+			payjoin_uri.address.script_pubkey(),
+			amount_to_send.to_sat(),
+		)?;
+		let payjoin_sender = Arc::clone(payjoin_sender);
 		let runtime = rt_lock.as_ref().unwrap();
 		let event_queue = Arc::clone(&self.event_queue);
-        runtime.spawn(async move {
-            let mut interval = tokio::time::interval(PAYJOIN_RETRY_INTERVAL);
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(PAYJOIN_REQUEST_TOTAL_DURATION) => {
-                        let _ = event_queue.add_event(Event::PayjoinTxSendFailed {
-                            reason: "Payjoin request timed out.".to_string(),
-                        });
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        match sender.fetch(&request).await {
-                            Some(response) => {
-                                match sender.process_payjoin_response(context, response, &mut original_psbt) {
-                                    Ok(txid) => {
-                                        let _ = event_queue.add_event(Event::PayjoinTxSendSuccess { txid });
-                                        break;
-                                    },
-                                    Err(e) => {
-                                        let _ = event_queue
-                                            .add_event(Event::PayjoinTxSendFailed { reason: e.to_string() });
-                                        break;
-                                        },
-                                }
-                            },
-                            None => {
-                                continue;
-                            },
-                        };
-                    }
-                } 
-            }
-        });
+		let tx_broadcaster = Arc::clone(&self.tx_broadcaster);
+		let wallet = Arc::clone(&self.wallet);
+		let logger = Arc::clone(&self.logger);
+		let payjoin_relay = payjoin_sender.payjoin_relay().clone();
+		runtime.spawn(async move {
+			let mut interval = tokio::time::interval(PAYJOIN_RETRY_INTERVAL);
+			loop {
+				tokio::select! {
+					_ = tokio::time::sleep(PAYJOIN_REQUEST_TOTAL_DURATION) => {
+						let _ = event_queue.add_event(Event::PayjoinTxSendFailed {
+							reason: "Payjoin request timed out.".to_string(),
+						});
+						break;
+					}
+					_ = interval.tick() => {
+						let payjoin_uri = payjoin_uri.clone();
+
+						let (request, context) =
+							payjoin::send::RequestBuilder::from_psbt_and_uri(original_psbt.clone(), payjoin_uri)
+							.and_then(|b| b.build_non_incentivizing())
+							.and_then(|mut c| c.extract_v2(payjoin_relay.clone()))
+							.map_err(|_e| Error::PayjoinRequestCreationFailed).unwrap();
+						match payjoin_sender.send_request(&request).await {
+							Some(response) => {
+								match context.process_response(&mut response.as_slice()) {
+											Ok(Some(payjoin_proposal_psbt)) => {
+													let payjoin_proposal_psbt = &mut payjoin_proposal_psbt.clone();
+													let is_signed = wallet.sign_payjoin_proposal(payjoin_proposal_psbt, &mut original_psbt.clone()).unwrap();
+													if is_signed {
+														let tx = payjoin_proposal_psbt.clone().extract_tx();
+														tx_broadcaster.broadcast_transactions(&[&tx]);
+														let txid = tx.txid();
+														let _ = event_queue.add_event(Event::PayjoinPaymentPending { txid });
+													} else {
+														let _ = event_queue
+															.add_event(Event::PayjoinTxSendFailed { reason: "Unable to sign proposal".to_string(), });
+															break;
+													}
+											},
+											Err(e) => {
+													let _ = event_queue
+														.add_event(Event::PayjoinTxSendFailed { reason: e.to_string() });
+													log_error!(logger, "Error processing Payjoin response: {}", e);
+													break;
+											},
+											Ok(None) => {
+													log_info!(logger, "Payjoin response received, waiting for next response.");
+													continue;
+											}
+								}
+							},
+						None => {
+							continue;
+						},
+						};
+					}
+				}
+			}
+		});
 		return Ok(());
 	}
 

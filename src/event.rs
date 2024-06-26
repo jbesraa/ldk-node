@@ -158,6 +158,13 @@ pub enum Event {
 		/// Reason for the failure.
 		reason: String,
 	},
+	/// Failed to send Payjoin transaction.
+	///
+	/// This event is emitted when our attempt to send Payjoin transaction fail.
+	PayjoinPaymentPending {
+		/// Transaction ID of the successfully sent Payjoin transaction.
+		txid: bitcoin::Txid,
+	},
 }
 
 impl_writeable_tlv_based_enum!(Event,
@@ -199,12 +206,15 @@ impl_writeable_tlv_based_enum!(Event,
 		(2, payment_id, required),
 		(4, claimable_amount_msat, required),
 		(6, claim_deadline, option),
-    },
+	},
 	(7, PayjoinTxSendSuccess) => {
 		(0, txid, required),
 	},
 	(8, PayjoinTxSendFailed) => {
 		(0, reason, required),
+	},
+	(9, PayjoinPaymentPending) => {
+		(0, txid, required),
 	};
 );
 

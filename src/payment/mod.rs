@@ -3,7 +3,7 @@
 mod bolt11;
 mod bolt12;
 mod onchain;
-mod payjoin;
+pub(crate) mod payjoin;
 mod spontaneous;
 pub(crate) mod store;
 
