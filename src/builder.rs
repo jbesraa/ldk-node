@@ -491,8 +491,8 @@ impl ArcedNodeBuilder {
 	}
 
 	/// Configures the [`Node`] instance to enable payjoin transactions.
-	pub fn set_payjoin_config(&self, payjoin_relay: String) -> Result<(), BuildError> {
-		self.inner.write().unwrap().set_payjoin_config(payjoin_relay).map(|_| ())
+	pub fn set_payjoin_config(&self, payjoin_directory: String, payjoin_relay: String, ohttp_keys: Option<String>) -> Result<(), BuildError> {
+		self.inner.write().unwrap().set_payjoin_config(payjoin_directory, payjoin_relay, ohttp_keys).map(|_| ())
 	}
 
 	/// Configures the [`Node`] instance to source its gossip data from the given RapidGossipSync
@@ -1016,6 +1016,8 @@ fn build_with_store_internal(
 			Arc::clone(&logger),
 			pj_config.payjoin_relay.clone(),
 		)));
+		dbg!("directory", pj_config.payjoin_directory.clone());
+		dbg!("relay", pj_config.payjoin_relay.clone());
 		payjoin_receiver = Some(Arc::new(PayjoinReceiver::new(
 			Arc::clone(&logger),
 			Arc::clone(&wallet),

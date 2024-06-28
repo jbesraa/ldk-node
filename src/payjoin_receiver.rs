@@ -354,6 +354,7 @@ impl PayjoinReceiver {
 				let payjoin_directory = match payjoin_directory.join("/ohttp-keys") {
 					Ok(payjoin_directory) => payjoin_directory,
 					Err(e) => {
+						dbg!(&e);
 						log_info!(
 							self.logger,
 							"Payjoin Receiver: Unable to construct ohttp keys url {}",
@@ -365,6 +366,7 @@ impl PayjoinReceiver {
 				let proxy = match reqwest::Proxy::all(self.payjoin_relay.to_string()) {
 					Ok(proxy) => proxy,
 					Err(e) => {
+						dbg!(&e);
 						log_info!(
 							self.logger,
 							"Payjoin Receiver: Unable to construct reqwest proxy {}",
@@ -376,6 +378,7 @@ impl PayjoinReceiver {
 				let client = match reqwest::Client::builder().proxy(proxy).build() {
 					Ok(client) => client,
 					Err(e) => {
+						dbg!(&e);
 						log_info!(
 							self.logger,
 							"Payjoin Receiver: Unable to construct reqwest client {}",
@@ -387,6 +390,7 @@ impl PayjoinReceiver {
 				let response = match client.get(payjoin_directory).send().await {
 					Ok(response) => response,
 					Err(e) => {
+						dbg!(&e);
 						log_info!(
 							self.logger,
 							"Payjoin Receiver: Unable to make request to fetch ohttp keys {}",

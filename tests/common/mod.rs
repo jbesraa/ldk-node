@@ -147,10 +147,10 @@ macro_rules! expect_payment_successful_event {
 
 pub(crate) use expect_payment_successful_event;
 
-macro_rules! expect_payjoin_tx_sent_successfully_event {
+macro_rules! expect_payjoin_payment_pending_event {
 	($node: expr) => {{
 		match $node.wait_next_event() {
-			ref e @ Event::PayjoinTxSendSuccess { txid } => {
+			ref e @ Event::PayjoinPaymentPending { txid } => {
 				println!("{} got event {:?}", $node.node_id(), e);
 				$node.event_handled();
 				txid
@@ -162,7 +162,7 @@ macro_rules! expect_payjoin_tx_sent_successfully_event {
 	}};
 }
 
-pub(crate) use expect_payjoin_tx_sent_successfully_event;
+pub(crate) use expect_payjoin_payment_pending_event;
 
 pub(crate) fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
 	let bitcoind_exe =

@@ -2,7 +2,7 @@ mod common;
 
 use common::{
 	expect_channel_pending_event, expect_channel_ready_event,
-	expect_payjoin_tx_sent_successfully_event, generate_blocks_and_wait,
+	expect_payjoin_payment_pending_event, generate_blocks_and_wait,
 	premine_and_distribute_funds, setup_bitcoind_and_electrsd, setup_two_payjoin_nodes,
 	wait_for_tx,
 };
@@ -46,7 +46,7 @@ fn send_receive_payjoin_transaction_with_channel_opening() {
 	assert!(sender_payjoin_payment.send(payjoin_uri).is_ok());
 	expect_channel_pending_event!(node_a_pj_receiver, node_b_pj_sender.node_id());
 	expect_channel_pending_event!(node_b_pj_sender, node_a_pj_receiver.node_id());
-	let txid = expect_payjoin_tx_sent_successfully_event!(node_b_pj_sender);
+	let txid = expect_payjoin_payment_pending_event!(node_b_pj_sender);
 	wait_for_tx(&electrsd.client, txid);
 	generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 6);
 	node_a_pj_receiver.sync_wallets().unwrap();

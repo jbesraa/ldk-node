@@ -340,3 +340,16 @@ impl PayjoinPayment {
 		}
 	}
 }
+
+// use crate::lightning::chain::{Filter, WatchedOutput};
+
+// impl Filter for PayjoinPayment {
+// 	fn register_tx(&self, txid: &bitcoin::Txid, script_pubkey: &bitcoin::Script) {
+// 		if let Some(receiver) = &self.receiver {
+// 			receiver.register_tx(txid);
+// 		}
+// 	}
+// 	fn register_output(&self, output: WatchOutput) {
+// 	}
+// }
+
