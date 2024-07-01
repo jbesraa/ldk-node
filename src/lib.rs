@@ -111,8 +111,8 @@ pub use error::Error as NodeError;
 use error::Error;
 
 pub use event::Event;
-use payment::payjoin::send::PayjoinSender;
 use payjoin_receiver::PayjoinReceiver;
+use payment::payjoin::send::PayjoinSender;
 pub use types::ChannelConfig;
 
 pub use io::utils::generate_entropy_mnemonic;
@@ -374,6 +374,10 @@ impl Node {
 		let archive_cmon = Arc::clone(&self.chain_monitor);
 		let sync_sweeper = Arc::clone(&self.output_sweeper);
 		let sync_logger = Arc::clone(&self.logger);
+		let sync_payjoin = match &self.payjoin_sender {
+			Some(sender) => Some(Arc::clone(sender)),
+			None => None,
+		};
 		let sync_wallet_timestamp = Arc::clone(&self.latest_wallet_sync_timestamp);
 		let sync_monitor_archival_height = Arc::clone(&self.latest_channel_monitor_archival_height);
 		let mut stop_sync = self.stop_sender.subscribe();
@@ -393,12 +397,15 @@ impl Node {
 						return;
 					}
 					_ = wallet_sync_interval.tick() => {
-						let confirmables = vec![
-							&*sync_cman as &(dyn Confirm + Sync + Send),
-							&*sync_cmon as &(dyn Confirm + Sync + Send),
-							&*sync_sweeper as &(dyn Confirm + Sync + Send),
-						];
-						let now = Instant::now();
+                                                let mut confirmables = vec![
+                                                    &*sync_cman as &(dyn Confirm + Sync + Send),
+                                                    &*sync_cmon as &(dyn Confirm + Sync + Send),
+                                                    &*sync_sweeper as &(dyn Confirm + Sync + Send),
+                                                ];
+                                                if let Some(sync_payjoin) = sync_payjoin.as_ref() {
+                                                    confirmables.push(sync_payjoin.as_ref() as &(dyn Confirm + Sync + Send));
+                                                } 						
+                                                let now = Instant::now();
 						let timeout_fut = tokio::time::timeout(Duration::from_secs(LDK_WALLET_SYNC_TIMEOUT_SECS), tx_sync.sync(confirmables));
 						match timeout_fut.await {
 							Ok(res) => match res {
@@ -1348,11 +1355,15 @@ impl Node {
 		let fee_estimator = Arc::clone(&self.fee_estimator);
 		let sync_sweeper = Arc::clone(&self.output_sweeper);
 		let sync_logger = Arc::clone(&self.logger);
-		let confirmables = vec![
+		let sync_payjoin = &self.payjoin_sender.as_ref();
+		let mut confirmables = vec![
 			&*sync_cman as &(dyn Confirm + Sync + Send),
 			&*sync_cmon as &(dyn Confirm + Sync + Send),
 			&*sync_sweeper as &(dyn Confirm + Sync + Send),
 		];
+		if let Some(sync_payjoin) = sync_payjoin {
+			confirmables.push(sync_payjoin.as_ref() as &(dyn Confirm + Sync + Send));
+		}
 		let sync_wallet_timestamp = Arc::clone(&self.latest_wallet_sync_timestamp);
 		let sync_fee_rate_update_timestamp =
 			Arc::clone(&self.latest_fee_rate_cache_update_timestamp);

@@ -1,10 +1,10 @@
 //! Holds a payment handler allowing to send Payjoin payments.
 
-use lightning::chain::chaininterface::BroadcasterInterface;
+use lightning::chain::{chaininterface::BroadcasterInterface, Filter};
 
 use crate::config::{PAYJOIN_REQUEST_TOTAL_DURATION, PAYJOIN_RETRY_INTERVAL};
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
-use crate::types::{ChannelManager, Broadcaster, EventQueue, Wallet};
+use crate::types::{Broadcaster, ChannelManager, EventQueue, Wallet};
 use crate::Event;
 use bitcoin::secp256k1::PublicKey;
 use lightning::ln::msgs::SocketAddress;
@@ -81,9 +81,8 @@ pub struct PayjoinPayment {
 impl PayjoinPayment {
 	pub(crate) fn new(
 		runtime: Arc<RwLock<Option<tokio::runtime::Runtime>>>, sender: Option<Arc<PayjoinSender>>,
-		receiver: Option<Arc<PayjoinReceiver>>,
-		config: Arc<Config>, event_queue: Arc<EventQueue>, logger: Arc<FilesystemLogger>,
-		wallet: Arc<Wallet>, tx_broadcaster: Arc<Broadcaster>,
+		receiver: Option<Arc<PayjoinReceiver>>, config: Arc<Config>, event_queue: Arc<EventQueue>,
+		logger: Arc<FilesystemLogger>, wallet: Arc<Wallet>, tx_broadcaster: Arc<Broadcaster>,
 		peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>, channel_manager: Arc<ChannelManager>,
 		connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
 	) -> Self {
@@ -175,6 +174,11 @@ impl PayjoinPayment {
 													let is_signed = wallet.sign_payjoin_proposal(payjoin_proposal_psbt, &mut original_psbt.clone()).unwrap();
 													if is_signed {
 														let tx = payjoin_proposal_psbt.clone().extract_tx();
+                            let inputs = tx.output.clone();
+                            let input = inputs.iter().find(|input| {
+                                wallet.is_mine(&input.script_pubkey).unwrap_or(false)
+                            }).unwrap().script_pubkey.clone();
+                            payjoin_sender.register_tx(&tx.txid(), &input);
 														tx_broadcaster.broadcast_transactions(&[&tx]);
 														let txid = tx.txid();
 														let _ = event_queue.add_event(Event::PayjoinPaymentPending { txid });
@@ -352,4 +356,3 @@ impl PayjoinPayment {
 // 	fn register_output(&self, output: WatchOutput) {
 // 	}
 // }
-

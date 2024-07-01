@@ -35,9 +35,9 @@ use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey, Signing};
 use bitcoin::{ScriptBuf, Transaction, TxOut, Txid};
 
+use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, RwLock};
-use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 enum WalletSyncStatus {

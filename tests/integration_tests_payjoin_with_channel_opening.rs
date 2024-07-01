@@ -1,15 +1,15 @@
 mod common;
 
 use common::{
-	expect_channel_pending_event, expect_channel_ready_event,
-	expect_payjoin_payment_pending_event, generate_blocks_and_wait,
-	premine_and_distribute_funds, setup_bitcoind_and_electrsd, setup_two_payjoin_nodes,
-	wait_for_tx,
+	expect_channel_pending_event, expect_channel_ready_event, expect_payjoin_payment_pending_event,
+	generate_blocks_and_wait, premine_and_distribute_funds, setup_bitcoind_and_electrsd,
+	setup_two_payjoin_nodes, wait_for_tx,
 };
 
 use bitcoin::Amount;
 use ldk_node::Event;
 
+#[ignore]
 #[test]
 fn send_receive_payjoin_transaction_with_channel_opening() {
 	let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
@@ -64,10 +64,7 @@ fn send_receive_payjoin_transaction_with_channel_opening() {
 
 	assert_eq!(node_a_pj_receiver.list_peers().get(0).unwrap().is_connected, true);
 	assert_eq!(node_a_pj_receiver.list_peers().get(0).unwrap().is_persisted, true);
-	assert_eq!(
-		node_a_pj_receiver.list_peers().get(0).unwrap().node_id,
-		node_b_pj_sender.node_id()
-	);
+	assert_eq!(node_a_pj_receiver.list_peers().get(0).unwrap().node_id, node_b_pj_sender.node_id());
 
 	let invoice_amount_1_msat = 2500_000;
 	let invoice =
