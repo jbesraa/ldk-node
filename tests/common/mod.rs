@@ -1,6 +1,7 @@
 #![cfg(any(test, cln_test, vss_test))]
 #![allow(dead_code)]
 
+use bitcoin::secp256k1::PublicKey;
 use ldk_node::io::sqlite_store::SqliteStore;
 use ldk_node::payment::{PaymentDirection, PaymentKind, PaymentStatus};
 use ldk_node::{
@@ -262,6 +263,37 @@ pub(crate) fn setup_node(electrsd: &ElectrsD, config: Config) -> TestNode {
 	let esplora_url = format!("http://{}", electrsd.esplora_url.as_ref().unwrap());
 	setup_builder!(builder, config);
 	builder.set_esplora_server(esplora_url.clone());
+	let test_sync_store = Arc::new(TestSyncStore::new(config.storage_dir_path.into()));
+	let node = builder.build_with_store(test_sync_store).unwrap();
+	node.start().unwrap();
+	assert!(node.status().is_running);
+	assert!(node.status().latest_fee_rate_cache_update_timestamp.is_some());
+	node
+}
+
+pub(crate) fn setup_liquidity_client_node(
+	electrsd: &ElectrsD, address: SocketAddress, node_id: PublicKey, token: Option<String>,
+) -> TestNode {
+	let config = random_config(false);
+	let esplora_url = format!("http://{}", electrsd.esplora_url.as_ref().unwrap());
+	setup_builder!(builder, config);
+	builder.set_esplora_server(esplora_url.clone());
+	builder.set_liquidity_source_lsps2(address, node_id, token);
+	let test_sync_store = Arc::new(TestSyncStore::new(config.storage_dir_path.into()));
+	let node = builder.build_with_store(test_sync_store).unwrap();
+	node.start().unwrap();
+	assert!(node.status().is_running);
+	assert!(node.status().latest_fee_rate_cache_update_timestamp.is_some());
+	node
+}
+
+pub(crate) fn setup_liquidity_provider_node(electrsd: &ElectrsD) -> TestNode {
+	let config = random_config(false);
+	let esplora_url = format!("http://{}", electrsd.esplora_url.as_ref().unwrap());
+	setup_builder!(builder, config);
+	builder.set_esplora_server(esplora_url.clone());
+	let secret = [0; 32];
+	builder.set_liquidity_provider_config(secret, true);
 	let test_sync_store = Arc::new(TestSyncStore::new(config.storage_dir_path.into()));
 	let node = builder.build_with_store(test_sync_store).unwrap();
 	node.start().unwrap();

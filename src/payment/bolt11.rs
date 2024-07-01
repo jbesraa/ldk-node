@@ -79,6 +79,9 @@ impl Bolt11Payment {
 			log_error!(self.logger, "Failed to send payment due to the given invoice being \"zero-amount\". Please use send_using_amount instead.");
 			Error::InvalidInvoice
 		})?;
+			dbg!(&payment_hash);
+			dbg!(&recipient_onion);
+			dbg!(&route_params);
 
 		let payment_id = PaymentId(invoice.payment_hash().to_byte_array());
 		if let Some(payment) = self.payment_store.get(&payment_id) {
@@ -123,6 +126,7 @@ impl Bolt11Payment {
 				Ok(payment_id)
 			},
 			Err(e) => {
+				dbg!(&e);
 				log_error!(self.logger, "Failed to send payment: {:?}", e);
 				match e {
 					RetryableSendFailure::DuplicatePayment => Err(Error::DuplicatePayment),
