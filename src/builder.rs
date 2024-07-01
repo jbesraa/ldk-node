@@ -38,12 +38,13 @@ use lightning::util::persist::{
 use lightning::util::ser::ReadableArgs;
 use lightning::util::sweep::OutputSweeper;
 
+use lightning_liquidity::lsps2::service::LSPS2ServiceConfig;
 use lightning_persister::fs_store::FilesystemStore;
 
 use lightning_transaction_sync::EsploraSyncClient;
 
 use lightning_liquidity::lsps2::client::LSPS2ClientConfig;
-use lightning_liquidity::{LiquidityClientConfig, LiquidityManager};
+use lightning_liquidity::{LiquidityClientConfig, LiquidityManager, LiquidityServiceConfig};
 
 #[cfg(any(vss, vss_test))]
 use crate::io::vss_store::VssStore;
@@ -821,12 +822,16 @@ fn build_with_store_internal(
 		lsc.lsps2_service.as_ref().map(|(address, node_id, token)| {
 			let lsps2_client_config = Some(LSPS2ClientConfig {});
 			let liquidity_client_config = Some(LiquidityClientConfig { lsps2_client_config });
+			let liquidity_service_config = Some(LiquidityServiceConfig {
+				lsps2_service_config: Some(LSPS2ServiceConfig { promise_secret: [0; 32] }),
+				advertise_service: true,
+			});
 			let liquidity_manager = Arc::new(LiquidityManager::new(
 				Arc::clone(&keys_manager),
 				Arc::clone(&channel_manager),
 				Some(Arc::clone(&tx_sync)),
 				None,
-				None,
+				liquidity_service_config,
 				liquidity_client_config,
 			));
 			Arc::new(LiquiditySource::new_lsps2(

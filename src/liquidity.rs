@@ -8,7 +8,7 @@ use lightning::routing::router::{RouteHint, RouteHintHop};
 use lightning_invoice::{Bolt11Invoice, InvoiceBuilder, RoutingFees};
 use lightning_liquidity::events::Event;
 use lightning_liquidity::lsps0::ser::RequestId;
-use lightning_liquidity::lsps2::event::LSPS2ClientEvent;
+use lightning_liquidity::lsps2::event::{LSPS2ClientEvent, LSPS2ServiceEvent};
 use lightning_liquidity::lsps2::msgs::OpeningFeeParams;
 use lightning_liquidity::lsps2::utils::compute_opening_fee;
 
@@ -181,6 +181,23 @@ where
 						"Received unexpected LSPS2Client::InvoiceParametersReady event!"
 					);
 				}
+			},
+			Event::LSPS2Service(LSPS2ServiceEvent::GetInfo { request_id, .. }) => {
+				log_info!(self.logger, "Recevied GetInfo event with request_id: {}", request_id);
+			},
+			Event::LSPS2Service(LSPS2ServiceEvent::BuyRequest {
+				request_id,
+				counterparty_node_id,
+				opening_fee_params,
+				payment_size_msat,
+			}) => {
+				log_info!(self.logger, "Received BuyRequest event with request_id: {}", request_id);
+			},
+			Event::LSPS2Service(LSPS2ServiceEvent::OpenChannel {
+                their_network_key,
+                ..
+			}) => {
+				log_info!(self.logger, "Received OpenChannel event with request_id: {}", request_id);
 			},
 			e => {
 				log_error!(self.logger, "Received unexpected liquidity event: {:?}", e);
