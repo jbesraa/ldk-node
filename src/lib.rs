@@ -404,7 +404,7 @@ impl Node {
                                                 ];
                                                 if let Some(sync_payjoin) = sync_payjoin.as_ref() {
                                                     confirmables.push(sync_payjoin.as_ref() as &(dyn Confirm + Sync + Send));
-                                                } 						
+                                                }
                                                 let now = Instant::now();
 						let timeout_fut = tokio::time::timeout(Duration::from_secs(LDK_WALLET_SYNC_TIMEOUT_SECS), tx_sync.sync(confirmables));
 						match timeout_fut.await {

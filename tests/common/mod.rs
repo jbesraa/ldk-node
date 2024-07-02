@@ -164,6 +164,23 @@ macro_rules! expect_payjoin_payment_pending_event {
 
 pub(crate) use expect_payjoin_payment_pending_event;
 
+macro_rules! expect_payjoin_payment_success_event {
+	($node: expr) => {{
+		match $node.wait_next_event() {
+			ref e @ Event::PayjoinTxSendSuccess { txid } => {
+				println!("{} got event {:?}", $node.node_id(), e);
+				$node.event_handled();
+				txid
+			},
+			ref e => {
+				panic!("{} got unexpected event!: {:?}", std::stringify!($node), e);
+			},
+		}
+	}};
+}
+
+pub(crate) use expect_payjoin_payment_success_event;
+
 pub(crate) fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
 	let bitcoind_exe =
 		env::var("BITCOIND_EXE").ok().or_else(|| bitcoind::downloaded_exe_path().ok()).expect(

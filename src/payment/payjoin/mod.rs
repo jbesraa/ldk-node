@@ -1,6 +1,6 @@
 //! Holds a payment handler allowing to send Payjoin payments.
 
-use lightning::chain::{chaininterface::BroadcasterInterface, Filter};
+use lightning::chain::chaininterface::BroadcasterInterface;
 
 use crate::config::{PAYJOIN_REQUEST_TOTAL_DURATION, PAYJOIN_RETRY_INTERVAL};
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
@@ -160,7 +160,6 @@ impl PayjoinPayment {
 					}
 					_ = interval.tick() => {
 						let payjoin_uri = payjoin_uri.clone();
-
 						let (request, context) =
 							payjoin::send::RequestBuilder::from_psbt_and_uri(original_psbt.clone(), payjoin_uri)
 							.and_then(|b| b.build_non_incentivizing())
@@ -171,24 +170,22 @@ impl PayjoinPayment {
 								match context.process_response(&mut response.as_slice()) {
 											Ok(Some(payjoin_proposal_psbt)) => {
 													let payjoin_proposal_psbt = &mut payjoin_proposal_psbt.clone();
-													let is_signed = wallet.sign_payjoin_proposal(payjoin_proposal_psbt, &mut original_psbt.clone()).unwrap();
-													if is_signed {
-														let tx = payjoin_proposal_psbt.clone().extract_tx();
-                            let inputs = tx.output.clone();
-                            let input = inputs.iter().find(|input| {
-                                wallet.is_mine(&input.script_pubkey).unwrap_or(false)
-                            }).unwrap().script_pubkey.clone();
-                            payjoin_sender.register_tx(&tx.txid(), &input);
-														tx_broadcaster.broadcast_transactions(&[&tx]);
-														let txid = tx.txid();
-														let _ = event_queue.add_event(Event::PayjoinPaymentPending { txid });
-													} else {
-														let _ = event_queue
-															.add_event(Event::PayjoinTxSendFailed { reason: "Unable to sign proposal".to_string(), });
-															break;
+													match payjoin_sender.finalise_payjoin_transaction(payjoin_proposal_psbt, &mut original_psbt.clone()) {
+														Ok(tx) => {
+															tx_broadcaster.broadcast_transactions(&[&tx]);
+															let txid = tx.txid();
+															let _ = event_queue.add_event(Event::PayjoinPaymentPending { txid });
+														}
+														Err(e) => {
+															dbg!(&e);
+															let _ = event_queue
+																.add_event(Event::PayjoinTxSendFailed { reason: "Unable to sign proposal".to_string(), });
+																break;
+														}
 													}
 											},
 											Err(e) => {
+													dbg!(&e);
 													let _ = event_queue
 														.add_event(Event::PayjoinTxSendFailed { reason: e.to_string() });
 													log_error!(logger, "Error processing Payjoin response: {}", e);
@@ -344,15 +341,3 @@ impl PayjoinPayment {
 		}
 	}
 }
-
-// use crate::lightning::chain::{Filter, WatchedOutput};
-
-// impl Filter for PayjoinPayment {
-// 	fn register_tx(&self, txid: &bitcoin::Txid, script_pubkey: &bitcoin::Script) {
-// 		if let Some(receiver) = &self.receiver {
-// 			receiver.register_tx(txid);
-// 		}
-// 	}
-// 	fn register_output(&self, output: WatchOutput) {
-// 	}
-// }

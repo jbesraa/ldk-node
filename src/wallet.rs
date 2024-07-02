@@ -193,7 +193,7 @@ where
 
 	pub(crate) fn sign_payjoin_proposal(
 		&self, payjoin_proposal_psbt: &mut Psbt, original_psbt: &mut Psbt,
-	) -> Result<bool, Error> {
+	) -> Result<(), Error> {
 		// BDK only signs scripts that match its target descriptor by iterating through input map.
 		// The BIP 78 spec makes receiver clear sender input map UTXOs, so process_response will
 		// fail unless they're cleared.  A PSBT unsigned_tx.input references input OutPoints and
@@ -217,7 +217,12 @@ where
 		}
 		let wallet = self.inner.lock().unwrap();
 		let is_signed = wallet.sign(payjoin_proposal_psbt, SignOptions::default())?;
-		Ok(is_signed)
+		if !is_signed {
+			dbg!("Failed to sign payjoin proposal");
+			log_error!(self.logger, "Failed to sign payjoin proposal");
+			return Err(Error::WalletOperationFailed);
+		}
+		Ok(())
 	}
 
 	// Returns a list of unspent outputs that can be used as inputs to improve the privacy of a

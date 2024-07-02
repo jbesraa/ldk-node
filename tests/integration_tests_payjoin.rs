@@ -8,6 +8,8 @@ use common::{
 use bitcoin::Amount;
 use ldk_node::Event;
 
+use crate::common::expect_payjoin_payment_success_event;
+
 #[test]
 fn send_receive_regular_payjoin_transaction() {
 	let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
@@ -36,8 +38,10 @@ fn send_receive_regular_payjoin_transaction() {
 	wait_for_tx(&electrsd.client, txid);
 	generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 6);
 	node_b_pj_sender.sync_wallets().unwrap();
+	// expect_payjoin_payment_success_event!(node_b_pj_sender);
 	let node_b_balance = node_b_pj_sender.list_balances();
 	assert!(node_b_balance.total_onchain_balance_sats < premine_amount_sat - 80000);
+	assert!(false);
 }
 
 #[ignore]
