@@ -130,22 +130,23 @@ impl PayjoinSender {
 	) {
 		let (index, tx) = txdata[0];
 		let txid = tx.txid();
-		let mut transactions = self.transactions.lock().unwrap();
-		let position = transactions.iter().position(|o| o.txid() == Some(txid)).unwrap();
-		let pj_tx = transactions.remove(position);
+		let position = self.transactions.lock().unwrap().iter().position(|o| o.txid() == Some(txid)).unwrap();
+		let pj_tx = self.transactions.lock().unwrap().remove(position);
 		dbg!("found confirmed", &pj_tx);
 		let pj_tx = match pj_tx {
 			PayjoinTransaction::PendingFirstConfirmation {
 				ref tx,
 				first_broadcast_height,
 				first_broadcast_hash,
-			} => transactions.push(PayjoinTransaction::PendingThresholdConfirmations {
+			} => {
+				dbg!("Here in peding first confirmation");
+				self.transactions.lock().unwrap().push(PayjoinTransaction::PendingThresholdConfirmations {
 				tx: tx.clone(),
 				first_broadcast_height,
 				first_broadcast_hash,
 				latest_confirmation_height: height,
 				latest_confirmation_hash: header.block_hash(),
-			}),
+			})},
 			PayjoinTransaction::PendingThresholdConfirmations {
 				ref tx,
 				first_broadcast_height,
@@ -159,7 +160,7 @@ impl PayjoinSender {
 				if height - first_broadcast_height >= ANTI_REORG_DELAY {
 					let _ = self.event_queue.add_event(Event::PayjoinTxSendSuccess { txid });
 				} else {
-					transactions.push(PayjoinTransaction::PendingThresholdConfirmations {
+					self.transactions.lock().unwrap().push(PayjoinTransaction::PendingThresholdConfirmations {
 						tx: tx.clone(),
 						first_broadcast_height,
 						first_broadcast_hash,

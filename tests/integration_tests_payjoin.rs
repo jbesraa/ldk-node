@@ -36,7 +36,9 @@ fn send_receive_regular_payjoin_transaction() {
 	assert!(sender_payjoin_payment.send(payjoin_uri).is_ok());
 	let txid = expect_payjoin_payment_pending_event!(node_b_pj_sender);
 	wait_for_tx(&electrsd.client, txid);
-	generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 6);
+	generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 1);
+	node_b_pj_sender.sync_wallets().unwrap();
+	generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 5);
 	node_b_pj_sender.sync_wallets().unwrap();
 	// expect_payjoin_payment_success_event!(node_b_pj_sender);
 	let node_b_balance = node_b_pj_sender.list_balances();
