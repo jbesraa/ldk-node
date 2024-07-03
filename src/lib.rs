@@ -112,7 +112,7 @@ use error::Error;
 
 pub use event::Event;
 use payjoin_receiver::PayjoinReceiver;
-use payment::payjoin::send::PayjoinSender;
+use payment::payjoin::handler::PayjoinHandler;
 pub use types::ChannelConfig;
 
 pub use io::utils::generate_entropy_mnemonic;
@@ -192,7 +192,7 @@ pub struct Node {
 	output_sweeper: Arc<Sweeper>,
 	peer_manager: Arc<PeerManager>,
 	connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
-	payjoin_sender: Option<Arc<PayjoinSender>>,
+	payjoin_sender: Option<Arc<PayjoinHandler>>,
 	payjoin_receiver: Option<Arc<PayjoinReceiver>>,
 	keys_manager: Arc<KeysManager>,
 	network_graph: Arc<Graph>,

@@ -218,7 +218,6 @@ where
 		let wallet = self.inner.lock().unwrap();
 		let is_signed = wallet.sign(payjoin_proposal_psbt, SignOptions::default())?;
 		if !is_signed {
-			dbg!("Failed to sign payjoin proposal");
 			log_error!(self.logger, "Failed to sign payjoin proposal");
 			return Err(Error::WalletOperationFailed);
 		}

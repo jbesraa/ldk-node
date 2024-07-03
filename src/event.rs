@@ -34,7 +34,7 @@ use lightning_liquidity::lsps2::utils::compute_opening_fee;
 
 use bitcoin::blockdata::locktime::absolute::LockTime;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, ScriptBuf};
 
 use rand::{thread_rng, Rng};
 
@@ -144,27 +144,39 @@ pub enum Event {
 		/// This will be `None` for events serialized by LDK Node v0.2.1 and prior.
 		reason: Option<ClosureReason>,
 	},
-	/// A Payjoin transaction has been successfully sent.
-	///
-	/// This event is emitted when we send a Payjoin transaction and it was accepted by the
-	/// receiver, and then finalised and broadcasted by us.
-	PayjoinTxSendSuccess {
-		/// Transaction ID of the successfully sent Payjoin transaction.
-		txid: bitcoin::Txid,
-	},
-	/// Failed to send Payjoin transaction.
-	///
-	/// This event is emitted when our attempt to send Payjoin transaction fail.
-	PayjoinTxSendFailed {
-		/// Reason for the failure.
-		reason: String,
-	},
 	/// Failed to send Payjoin transaction.
 	///
 	/// This event is emitted when our attempt to send Payjoin transaction fail.
 	PayjoinPaymentPending {
 		/// Transaction ID of the successfully sent Payjoin transaction.
 		txid: bitcoin::Txid,
+		/// docs
+		amount: u64,
+		/// docs
+		receipient: ScriptBuf,
+	},
+	/// A Payjoin transaction has been successfully sent.
+	///
+	/// This event is emitted when we send a Payjoin transaction and it was accepted by the
+	/// receiver, and then finalised and broadcasted by us.
+	PayjoinPaymentSuccess {
+		/// Transaction ID of the successfully sent Payjoin transaction.
+		txid: bitcoin::Txid,
+		/// docs
+		amount: u64,
+		/// docs
+		receipient: ScriptBuf,
+	},
+	/// Failed to send Payjoin transaction.
+	///
+	/// This event is emitted when our attempt to send Payjoin transaction fail.
+	PayjoinPaymentFailed {
+		/// docs
+		amount: u64,
+		/// docs
+		receipient: ScriptBuf,
+		/// Reason for the failure.
+		reason: String,
 	},
 }
 
@@ -208,14 +220,20 @@ impl_writeable_tlv_based_enum!(Event,
 		(4, claimable_amount_msat, required),
 		(6, claim_deadline, option),
 	},
-	(7, PayjoinTxSendSuccess) => {
+	(7, PayjoinPaymentPending) => {
 		(0, txid, required),
+		(2, amount, required),
+		(4, receipient, required),
 	},
-	(8, PayjoinTxSendFailed) => {
-		(0, reason, required),
-	},
-	(9, PayjoinPaymentPending) => {
+	(8, PayjoinPaymentSuccess) => {
 		(0, txid, required),
+		(2, amount, required),
+		(4, receipient, required),
+	},
+	(9, PayjoinPaymentFailed) => {
+		(0, amount, required),
+		(2, receipient, required),
+		(4, reason, required),
 	};
 );
 

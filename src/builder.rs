@@ -12,7 +12,7 @@ use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
 use crate::payjoin_receiver::PayjoinReceiver;
-use crate::payment::payjoin::send::PayjoinSender;
+use crate::payment::payjoin::handler::PayjoinHandler;
 use crate::payment::store::PaymentStore;
 use crate::peer_store::PeerStore;
 use crate::tx_broadcaster::TransactionBroadcaster;
@@ -1022,7 +1022,7 @@ fn build_with_store_internal(
 	let mut payjoin_sender = None;
 	let mut payjoin_receiver = None;
 	if let Some(pj_config) = payjoin_config {
-		payjoin_sender = Some(Arc::new(PayjoinSender::new(
+		payjoin_sender = Some(Arc::new(PayjoinHandler::new(
 			Arc::clone(&logger),
 			pj_config.payjoin_relay.clone(),
 			Arc::clone(&tx_sync),

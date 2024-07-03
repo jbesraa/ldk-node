@@ -222,3 +222,9 @@ impl From<lightning_transaction_sync::TxSyncError> for Error {
 		Self::TxSyncFailed
 	}
 }
+
+impl From<reqwest::Error> for Error {
+	fn from(e: reqwest::Error) -> Self {
+		Self::PayjoinRequestCreationFailed
+	}
+}
