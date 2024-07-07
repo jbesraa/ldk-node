@@ -95,6 +95,22 @@ pub enum Error {
 	LiquiditySourceUnavailable,
 	/// The given operation failed due to the LSP's required opening fee being too high.
 	LiquidityFeeTooHigh,
+	/// Failed to access Payjoin sender object.
+	PayjoinUnavailable,
+	/// Payjoin URI is invalid.
+	PayjoinUriInvalid,
+	/// Amount is neither user-provided nor defined in the URI.
+	PayjoinRequestMissingAmount,
+	/// Failed to build a Payjoin request.
+	PayjoinRequestCreationFailed,
+	/// Payjoin response processing failed.
+	PayjoinResponseProcessingFailed,
+	/// Failed to access payjoin receiver object.
+	PayjoinReceiverUnavailable,
+	/// Failed to enroll payjoin receiver.
+	PayjoinReceiverEnrollementFailed,
+	/// Failed to validate an incoming payjoin request.
+	PayjoinReceiverRequestValidationFailed,
 }
 
 impl fmt::Display for Error {
@@ -162,6 +178,30 @@ impl fmt::Display for Error {
 			Self::LiquidityFeeTooHigh => {
 				write!(f, "The given operation failed due to the LSP's required opening fee being too high.")
 			},
+			Self::PayjoinUnavailable => {
+				write!(f, "Failed to access Payjoin sender object. Make sure you have enabled Payjoin sending support.")
+			},
+			Self::PayjoinRequestMissingAmount => {
+				write!(f, "Amount is neither user-provided nor defined in the URI.")
+			},
+			Self::PayjoinRequestCreationFailed => {
+				write!(f, "Failed construct a Payjoin request")
+			},
+			Self::PayjoinUriInvalid => {
+				write!(f, "The provided Payjoin URI is invalid")
+			},
+			Self::PayjoinResponseProcessingFailed => {
+				write!(f, "Payjoin receiver responded to our request with an invalid response that was ignored")
+			},
+			Self::PayjoinReceiverUnavailable => {
+				write!(f, "Failed to access payjoin receiver object. Make sure you have enabled Payjoin receiving support.")
+			},
+			Self::PayjoinReceiverRequestValidationFailed => {
+				write!(f, "Failed to validate an incoming payjoin request. Payjoin sender request didnt pass the payjoin validation steps.")
+			},
+			Self::PayjoinReceiverEnrollementFailed => {
+				write!(f, "Failed to enroll payjoin receiver. Make sure the configured Payjoin directory & Payjoin relay are available.")
+			},
 		}
 	}
 }
@@ -180,5 +220,11 @@ impl From<bdk::Error> for Error {
 impl From<lightning_transaction_sync::TxSyncError> for Error {
 	fn from(_e: lightning_transaction_sync::TxSyncError) -> Self {
 		Self::TxSyncFailed
+	}
+}
+
+impl From<reqwest::Error> for Error {
+	fn from(e: reqwest::Error) -> Self {
+		Self::PayjoinRequestCreationFailed
 	}
 }

@@ -3,6 +3,7 @@ use crate::logger::{log_error, log_info, log_trace, Logger};
 use crate::config::BDK_WALLET_SYNC_TIMEOUT_SECS;
 use crate::Error;
 
+use bitcoin::psbt::Psbt;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 
 use lightning::events::bump_transaction::{Utxo, WalletSource};
@@ -18,7 +19,7 @@ use lightning::util::message_signing;
 use bdk::blockchain::EsploraBlockchain;
 use bdk::database::BatchDatabase;
 use bdk::wallet::AddressIndex;
-use bdk::{Balance, FeeRate};
+use bdk::{Balance, FeeRate, LocalUtxo};
 use bdk::{SignOptions, SyncOptions};
 
 use bitcoin::address::{Payload, WitnessVersion};
@@ -34,6 +35,7 @@ use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey, Signing};
 use bitcoin::{ScriptBuf, Transaction, TxOut, Txid};
 
+use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -149,6 +151,118 @@ where
 		res
 	}
 
+	// Returns the total value of all outputs in the given transaction that are directed to us
+	pub(crate) fn funds_directed_to_us(&self, tx: &Transaction) -> Result<bitcoin::Amount, Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		let total_value = tx.output.iter().fold(0, |acc, output| {
+			match locked_wallet.is_mine(&output.script_pubkey) {
+				Ok(true) => acc + output.value,
+				_ => acc,
+			}
+		});
+		Ok(bitcoin::Amount::from_sat(total_value))
+	}
+
+	pub(crate) fn build_payjoin_transaction(
+		&self, output_script: ScriptBuf, value_sats: u64,
+	) -> Result<Psbt, Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		let network = locked_wallet.network();
+		let fee_rate = match network {
+			bitcoin::Network::Regtest => 1000.0,
+			_ => self
+				.fee_estimator
+				.get_est_sat_per_1000_weight(ConfirmationTarget::OutputSpendingFee) as f32,
+		};
+		let fee_rate = FeeRate::from_sat_per_kwu(fee_rate);
+		let mut tx_builder = locked_wallet.build_tx();
+		tx_builder.add_recipient(output_script, value_sats).fee_rate(fee_rate).enable_rbf();
+		let mut psbt = match tx_builder.finish() {
+			Ok((psbt, _)) => {
+				log_trace!(self.logger, "Created Payjoin transaction: {:?}", psbt);
+				psbt
+			},
+			Err(err) => {
+				log_error!(self.logger, "Failed to create Payjoin transaction: {}", err);
+				return Err(err.into());
+			},
+		};
+		locked_wallet.sign(&mut psbt, SignOptions::default())?;
+		Ok(psbt)
+	}
+
+	pub(crate) fn sign_payjoin_proposal(
+		&self, payjoin_proposal_psbt: &mut Psbt, original_psbt: &mut Psbt,
+	) -> Result<(), Error> {
+		// BDK only signs scripts that match its target descriptor by iterating through input map.
+		// The BIP 78 spec makes receiver clear sender input map UTXOs, so process_response will
+		// fail unless they're cleared.  A PSBT unsigned_tx.input references input OutPoints and
+		// not a Script, so the sender signer must either be able to sign based on OutPoint UTXO
+		// lookup or otherwise re-introduce the Script from original_psbt.  Since BDK PSBT signer
+		// only checks Input map Scripts for match against its descriptor, it won't sign if they're
+		// empty.  Re-add the scripts from the original_psbt in order for BDK to sign properly.
+		// reference: https://github.com/bitcoindevkit/bdk-cli/pull/156#discussion_r1261300637
+		let mut original_inputs =
+			original_psbt.unsigned_tx.input.iter().zip(&mut original_psbt.inputs).peekable();
+		for (proposed_txin, proposed_psbtin) in
+			payjoin_proposal_psbt.unsigned_tx.input.iter().zip(&mut payjoin_proposal_psbt.inputs)
+		{
+			if let Some((original_txin, original_psbtin)) = original_inputs.peek() {
+				if proposed_txin.previous_output == original_txin.previous_output {
+					proposed_psbtin.witness_utxo = original_psbtin.witness_utxo.clone();
+					proposed_psbtin.non_witness_utxo = original_psbtin.non_witness_utxo.clone();
+					original_inputs.next();
+				}
+			}
+		}
+		let wallet = self.inner.lock().unwrap();
+		let is_signed = wallet.sign(payjoin_proposal_psbt, SignOptions::default())?;
+		if !is_signed {
+			log_error!(self.logger, "Failed to sign payjoin proposal");
+			return Err(Error::WalletOperationFailed);
+		}
+		Ok(())
+	}
+
+	// Returns a list of unspent outputs that can be used as inputs to improve the privacy of a
+	// payjoin transaction.
+	pub(crate) fn payjoin_receiver_candidate_input(
+		&self,
+	) -> Result<(HashMap<bitcoin::Amount, bitcoin::OutPoint>, Vec<LocalUtxo>), Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		let utxo_set = locked_wallet.list_unspent()?;
+		let candidate_inputs = utxo_set
+			.iter()
+			.filter_map(|utxo| {
+				if !utxo.is_spent {
+					Some((bitcoin::Amount::from_sat(utxo.txout.value), utxo.outpoint))
+				} else {
+					None
+				}
+			})
+			.collect();
+		Ok((candidate_inputs, utxo_set))
+	}
+	pub(crate) fn prepare_payjoin_proposal(&self, mut psbt: Psbt) -> Result<Psbt, Error> {
+		let wallet = self.inner.lock().unwrap();
+		let mut sign_options = SignOptions::default();
+		sign_options.trust_witness_utxo = true;
+		wallet.sign(&mut psbt, sign_options)?;
+		// Clear derivation paths from the PSBT as required by BIP78/BIP77
+		psbt.inputs.iter_mut().for_each(|i| {
+			i.bip32_derivation = BTreeMap::new();
+		});
+		psbt.outputs.iter_mut().for_each(|o| {
+			o.bip32_derivation = BTreeMap::new();
+		});
+		Ok(psbt)
+	}
+
+	pub(crate) fn is_mine(&self, script: &ScriptBuf) -> Result<bool, Error> {
+		let locked_wallet = self.inner.lock().unwrap();
+		Ok(locked_wallet.is_mine(script)?)
+	}
+
 	pub(crate) fn create_funding_transaction(
 		&self, output_script: ScriptBuf, value_sats: u64, confirmation_target: ConfirmationTarget,
 		locktime: LockTime,
@@ -241,9 +355,7 @@ where
 		&self, address: &bitcoin::Address, amount_msat_or_drain: Option<u64>,
 	) -> Result<Txid, Error> {
 		let confirmation_target = ConfirmationTarget::OutputSpendingFee;
-		let fee_rate = FeeRate::from_sat_per_kwu(
-			self.fee_estimator.get_est_sat_per_1000_weight(confirmation_target) as f32,
-		);
+		let fee_rate = FeeRate::from_sat_per_kwu(1.0);
 
 		let tx = {
 			let locked_wallet = self.inner.lock().unwrap();
