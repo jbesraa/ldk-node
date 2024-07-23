@@ -128,19 +128,18 @@ use config::{
 	WALLET_SYNC_INTERVAL_MINIMUM_SECS,
 };
 use connection::ConnectionManager;
-use event::{EventHandler, EventQueue};
+use event::EventHandler;
 use gossip::GossipSource;
 use graph::NetworkGraph;
 use liquidity::LiquiditySource;
-use payment::store::PaymentStore;
 use payment::{
 	Bolt11Payment, Bolt12Payment, OnchainPayment, PaymentDetails, SpontaneousPayment,
 	UnifiedQrPayment,
 };
 use peer_store::{PeerInfo, PeerStore};
 use types::{
-	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, FeeEstimator,
-	Graph, KeysManager, PeerManager, Router, Scorer, Sweeper, Wallet,
+	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, EventQueue,
+	FeeEstimator, Graph, KeysManager, PaymentStore, PeerManager, Router, Scorer, Sweeper, Wallet,
 };
 pub use types::{ChannelDetails, PeerDetails, UserChannelId};
 
@@ -182,7 +181,7 @@ pub struct Node {
 	tx_sync: Arc<EsploraSyncClient<Arc<FilesystemLogger>>>,
 	tx_broadcaster: Arc<Broadcaster>,
 	fee_estimator: Arc<FeeEstimator>,
-	event_queue: Arc<EventQueue<Arc<FilesystemLogger>>>,
+	event_queue: Arc<EventQueue>,
 	channel_manager: Arc<ChannelManager>,
 	chain_monitor: Arc<ChainMonitor>,
 	output_sweeper: Arc<Sweeper>,
@@ -197,7 +196,7 @@ pub struct Node {
 	_router: Arc<Router>,
 	scorer: Arc<Mutex<Scorer>>,
 	peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>,
-	payment_store: Arc<PaymentStore<Arc<FilesystemLogger>>>,
+	payment_store: Arc<PaymentStore>,
 	is_listening: Arc<AtomicBool>,
 	latest_wallet_sync_timestamp: Arc<RwLock<Option<u64>>>,
 	latest_onchain_wallet_sync_timestamp: Arc<RwLock<Option<u64>>>,

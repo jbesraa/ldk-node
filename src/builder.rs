@@ -3,7 +3,6 @@ use crate::config::{
 	DEFAULT_ESPLORA_CLIENT_TIMEOUT_SECS, DEFAULT_ESPLORA_SERVER_URL, WALLET_KEYS_SEED_LEN,
 };
 use crate::connection::ConnectionManager;
-use crate::event::EventQueue;
 use crate::fee_estimator::OnchainFeeEstimator;
 use crate::gossip::GossipSource;
 use crate::io;
@@ -11,12 +10,11 @@ use crate::io::sqlite_store::SqliteStore;
 use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
-use crate::payment::store::PaymentStore;
 use crate::peer_store::PeerStore;
 use crate::tx_broadcaster::TransactionBroadcaster;
 use crate::types::{
-	ChainMonitor, ChannelManager, DynStore, GossipSync, Graph, KeysManager, MessageRouter,
-	OnionMessenger, PeerManager,
+	ChainMonitor, ChannelManager, DynStore, EventQueue, GossipSync, Graph, KeysManager,
+	MessageRouter, OnionMessenger, PaymentStore, PeerManager,
 };
 use crate::wallet::Wallet;
 use crate::{LogLevel, Node};

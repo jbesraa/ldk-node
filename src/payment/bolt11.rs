@@ -9,10 +9,10 @@ use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::payment::store::{
 	LSPFeeLimits, PaymentDetails, PaymentDetailsUpdate, PaymentDirection, PaymentKind,
-	PaymentStatus, PaymentStore,
+	PaymentStatus,
 };
 use crate::peer_store::{PeerInfo, PeerStore};
-use crate::types::{ChannelManager, KeysManager};
+use crate::types::{ChannelManager, KeysManager, PaymentStore};
 
 use lightning::ln::channelmanager::{PaymentId, RecipientOnionFields, Retry, RetryableSendFailure};
 use lightning::ln::{PaymentHash, PaymentPreimage};
@@ -38,7 +38,7 @@ pub struct Bolt11Payment {
 	connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
 	keys_manager: Arc<KeysManager>,
 	liquidity_source: Option<Arc<LiquiditySource<Arc<FilesystemLogger>>>>,
-	payment_store: Arc<PaymentStore<Arc<FilesystemLogger>>>,
+	payment_store: Arc<PaymentStore>,
 	peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>,
 	config: Arc<Config>,
 	logger: Arc<FilesystemLogger>,
@@ -51,9 +51,8 @@ impl Bolt11Payment {
 		connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
 		keys_manager: Arc<KeysManager>,
 		liquidity_source: Option<Arc<LiquiditySource<Arc<FilesystemLogger>>>>,
-		payment_store: Arc<PaymentStore<Arc<FilesystemLogger>>>,
-		peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>, config: Arc<Config>,
-		logger: Arc<FilesystemLogger>,
+		payment_store: Arc<PaymentStore>, peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>,
+		config: Arc<Config>, logger: Arc<FilesystemLogger>,
 	) -> Self {
 		Self {
 			runtime,

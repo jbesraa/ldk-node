@@ -4,8 +4,10 @@ use crate::config::WALLET_KEYS_SEED_LEN;
 use crate::logger::{log_error, FilesystemLogger};
 use crate::peer_store::PeerStore;
 use crate::sweep::DeprecatedSpendableOutputInfo;
-use crate::types::{Broadcaster, ChainSource, DynStore, FeeEstimator, KeysManager, Sweeper};
-use crate::{Error, EventQueue, PaymentDetails};
+use crate::types::{
+	Broadcaster, ChainSource, DynStore, EventQueue, FeeEstimator, KeysManager, Sweeper,
+};
+use crate::{Error, PaymentDetails};
 
 use lightning::routing::gossip::NetworkGraph;
 use lightning::routing::scoring::{ProbabilisticScorer, ProbabilisticScoringDecayParameters};
@@ -134,12 +136,9 @@ where
 }
 
 /// Read previously persisted events from the store.
-pub(crate) fn read_event_queue<L: Deref + Clone>(
-	kv_store: Arc<DynStore>, logger: L,
-) -> Result<EventQueue<L>, std::io::Error>
-where
-	L::Target: Logger,
-{
+pub(crate) fn read_event_queue(
+	kv_store: Arc<DynStore>, logger: Arc<FilesystemLogger>,
+) -> Result<EventQueue, std::io::Error> {
 	let mut reader = Cursor::new(kv_store.read(
 		EVENT_QUEUE_PERSISTENCE_PRIMARY_NAMESPACE,
 		EVENT_QUEUE_PERSISTENCE_SECONDARY_NAMESPACE,
