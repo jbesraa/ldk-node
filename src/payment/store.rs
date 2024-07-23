@@ -6,6 +6,7 @@ use crate::logger::{log_error, Logger};
 use crate::types::DynStore;
 use crate::Error;
 
+use lightning::chain::BestBlock;
 use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::msgs::DecodeError;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
@@ -37,6 +38,14 @@ pub struct PaymentDetails {
 	pub status: PaymentStatus,
 	/// The timestamp, in seconds since start of the UNIX epoch, when this entry was last updated.
 	pub latest_update_timestamp: u64,
+	/// The transaction id of the payment.
+	///
+	/// This field is only set if the payment is on-chain.
+	pub txid: Option<bitcoin::Txid>,
+	/// The best known block which the transaction was included in.
+	///
+	/// This field is only set if the payment is on-chain.
+	pub best_block: Option<BestBlock>,
 }
 
 impl PaymentDetails {
@@ -48,7 +57,16 @@ impl PaymentDetails {
 			.duration_since(UNIX_EPOCH)
 			.unwrap_or(Duration::from_secs(0))
 			.as_secs();
-		Self { id, kind, amount_msat, direction, status, latest_update_timestamp }
+		Self {
+			id,
+			kind,
+			amount_msat,
+			direction,
+			status,
+			latest_update_timestamp,
+			txid: None,
+			best_block: None,
+		}
 	}
 }
 
@@ -67,7 +85,9 @@ impl Writeable for PaymentDetails {
 			(5, self.latest_update_timestamp, required),
 			(6, self.amount_msat, required),
 			(8, self.direction, required),
-			(10, self.status, required)
+			(10, self.status, required),
+			(11, self.txid, option),
+			(13, self.best_block, option),
 		});
 		Ok(())
 	}
@@ -88,7 +108,9 @@ impl Readable for PaymentDetails {
 			(5, latest_update_timestamp, (default_value, unix_time_secs)),
 			(6, amount_msat, required),
 			(8, direction, required),
-			(10, status, required)
+			(10, status, required),
+			(11, txid, option),
+			(13, best_block, option),
 		});
 
 		let id: PaymentId = id.0.ok_or(DecodeError::InvalidValue)?;
@@ -127,7 +149,16 @@ impl Readable for PaymentDetails {
 			}
 		};
 
-		Ok(PaymentDetails { id, kind, amount_msat, direction, status, latest_update_timestamp })
+		Ok(PaymentDetails {
+			id,
+			kind,
+			amount_msat,
+			direction,
+			status,
+			latest_update_timestamp,
+			txid,
+			best_block,
+		})
 	}
 }
 
@@ -293,6 +324,8 @@ pub(crate) struct PaymentDetailsUpdate {
 	pub amount_msat: Option<Option<u64>>,
 	pub direction: Option<PaymentDirection>,
 	pub status: Option<PaymentStatus>,
+	pub txid: Option<bitcoin::Txid>,
+	pub best_block: Option<BestBlock>,
 }
 
 impl PaymentDetailsUpdate {
@@ -305,6 +338,8 @@ impl PaymentDetailsUpdate {
 			amount_msat: None,
 			direction: None,
 			status: None,
+			txid: None,
+			best_block: None,
 		}
 	}
 }
@@ -413,6 +448,14 @@ where
 
 			if let Some(status) = update.status {
 				payment.status = status;
+			}
+
+			if let Some(txid) = update.txid {
+				payment.txid = Some(txid);
+			}
+
+			if let Some(best_block) = update.best_block {
+				payment.best_block = Some(best_block);
 			}
 
 			payment.latest_update_timestamp = SystemTime::now()
