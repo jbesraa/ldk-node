@@ -16,9 +16,9 @@ use crate::io::{
 use crate::logger::{log_error, FilesystemLogger};
 use crate::peer_store::PeerStore;
 use crate::sweep::DeprecatedSpendableOutputInfo;
-use crate::types::{Broadcaster, DynStore, KeysManager, Sweeper};
+use crate::types::{Broadcaster, DynStore, EventQueue, KeysManager, Sweeper};
 use crate::wallet::ser::{ChangeSetDeserWrapper, ChangeSetSerWrapper};
-use crate::{Error, EventQueue, NodeMetrics, PaymentDetails};
+use crate::{Error, NodeMetrics, PaymentDetails};
 
 use lightning::io::Cursor;
 use lightning::ln::msgs::DecodeError;
@@ -157,12 +157,9 @@ where
 }
 
 /// Read previously persisted events from the store.
-pub(crate) fn read_event_queue<L: Deref + Clone>(
-	kv_store: Arc<DynStore>, logger: L,
-) -> Result<EventQueue<L>, std::io::Error>
-where
-	L::Target: Logger,
-{
+pub(crate) fn read_event_queue(
+	kv_store: Arc<DynStore>, logger: Arc<FilesystemLogger>,
+) -> Result<EventQueue, std::io::Error> {
 	let mut reader = Cursor::new(kv_store.read(
 		EVENT_QUEUE_PERSISTENCE_PRIMARY_NAMESPACE,
 		EVENT_QUEUE_PERSISTENCE_SECONDARY_NAMESPACE,
