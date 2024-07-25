@@ -72,6 +72,10 @@ pub(crate) type Wallet = crate::wallet::Wallet<
 	Arc<FilesystemLogger>,
 >;
 
+pub(crate) type EventQueue = crate::event::EventQueue<Arc<FilesystemLogger>>;
+
+pub(crate) type PaymentStore = crate::payment::store::PaymentStore<Arc<FilesystemLogger>>;
+
 pub(crate) type KeysManager = crate::wallet::WalletKeysManager<
 	bdk::database::SqliteDatabase,
 	Arc<Broadcaster>,
