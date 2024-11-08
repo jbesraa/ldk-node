@@ -9,7 +9,6 @@ use crate::chain::{ChainSource, DEFAULT_ESPLORA_SERVER_URL};
 use crate::config::{default_user_config, Config, EsploraSyncConfig, WALLET_KEYS_SEED_LEN};
 
 use crate::connection::ConnectionManager;
-use crate::event::EventQueue;
 use crate::fee_estimator::OnchainFeeEstimator;
 use crate::gossip::GossipSource;
 use crate::io::sqlite_store::SqliteStore;
@@ -18,16 +17,16 @@ use crate::io::vss_store::VssStore;
 use crate::liquidity::LiquiditySource;
 use crate::logger::{log_error, log_info, FilesystemLogger, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
-use crate::payment::store::PaymentStore;
 use crate::peer_store::PeerStore;
 use crate::tx_broadcaster::TransactionBroadcaster;
 use crate::types::{
-	ChainMonitor, ChannelManager, DynStore, GossipSync, Graph, KeysManager, MessageRouter,
-	OnionMessenger, PeerManager,
+	ChainMonitor, ChannelManager, DynStore, EventQueue, GossipSync, Graph, KeysManager,
+	MessageRouter, OnionMessenger, PaymentStore, PeerManager,
 };
 use crate::wallet::persist::KVStoreWalletPersister;
 use crate::wallet::Wallet;
 use crate::{io, NodeMetrics};
+use crate::PayjoinHandler;
 use crate::{LogLevel, Node};
 
 use lightning::chain::{chainmonitor, BestBlock, Watch};
@@ -100,6 +99,11 @@ struct LiquiditySourceConfig {
 	lsps2_service: Option<(SocketAddress, PublicKey, Option<String>)>,
 }
 
+#[derive(Debug, Clone)]
+struct PayjoinConfig {
+	payjoin_relay: payjoin::Url,
+}
+
 impl Default for LiquiditySourceConfig {
 	fn default() -> Self {
 		Self { lsps2_service: None }
@@ -141,6 +145,8 @@ pub enum BuildError {
 	WalletSetupFailed,
 	/// We failed to setup the logger.
 	LoggerSetupFailed,
+	/// Invalid Payjoin configuration.
+	InvalidPayjoinConfig,
 }
 
 impl fmt::Display for BuildError {
@@ -162,6 +168,10 @@ impl fmt::Display for BuildError {
 			Self::WalletSetupFailed => write!(f, "Failed to setup onchain wallet."),
 			Self::LoggerSetupFailed => write!(f, "Failed to setup the logger."),
 			Self::InvalidNodeAlias => write!(f, "Given node alias is invalid."),
+			Self::InvalidPayjoinConfig => write!(
+				f,
+				"Invalid Payjoin configuration. Make sure the provided arguments are valid URLs."
+			),
 		}
 	}
 }
@@ -182,6 +192,7 @@ pub struct NodeBuilder {
 	chain_data_source_config: Option<ChainDataSourceConfig>,
 	gossip_source_config: Option<GossipSourceConfig>,
 	liquidity_source_config: Option<LiquiditySourceConfig>,
+	payjoin_config: Option<PayjoinConfig>,
 }
 
 impl NodeBuilder {
@@ -197,12 +208,14 @@ impl NodeBuilder {
 		let chain_data_source_config = None;
 		let gossip_source_config = None;
 		let liquidity_source_config = None;
+		let payjoin_config = None;
 		Self {
 			config,
 			entropy_source_config,
 			chain_data_source_config,
 			gossip_source_config,
 			liquidity_source_config,
+			payjoin_config,
 		}
 	}
 
@@ -271,6 +284,14 @@ impl NodeBuilder {
 	pub fn set_gossip_source_rgs(&mut self, rgs_server_url: String) -> &mut Self {
 		self.gossip_source_config = Some(GossipSourceConfig::RapidGossipSync(rgs_server_url));
 		self
+	}
+
+	/// Configures the [`Node`] instance to enable payjoin transactions.
+	pub fn set_payjoin_config(&mut self, payjoin_relay: String) -> Result<&mut Self, BuildError> {
+		let payjoin_relay =
+			payjoin::Url::parse(&payjoin_relay).map_err(|_| BuildError::InvalidPayjoinConfig)?;
+		self.payjoin_config = Some(PayjoinConfig { payjoin_relay });
+		Ok(self)
 	}
 
 	/// Configures the [`Node`] instance to source its inbound liquidity from the given
@@ -480,6 +501,7 @@ impl NodeBuilder {
 			self.chain_data_source_config.as_ref(),
 			self.gossip_source_config.as_ref(),
 			self.liquidity_source_config.as_ref(),
+			self.payjoin_config.as_ref(),
 			seed_bytes,
 			logger,
 			Arc::new(vss_store),
@@ -501,6 +523,7 @@ impl NodeBuilder {
 			self.chain_data_source_config.as_ref(),
 			self.gossip_source_config.as_ref(),
 			self.liquidity_source_config.as_ref(),
+			self.payjoin_config.as_ref(),
 			seed_bytes,
 			logger,
 			kv_store,
@@ -584,6 +607,11 @@ impl ArcedNodeBuilder {
 	/// network.
 	pub fn set_gossip_source_p2p(&self) {
 		self.inner.write().unwrap().set_gossip_source_p2p();
+	}
+
+	/// Configures the [`Node`] instance to enable payjoin transactions.
+	pub fn set_payjoin_config(&self, payjoin_relay: String) -> Result<(), BuildError> {
+		self.inner.write().unwrap().set_payjoin_config(payjoin_relay).map(|_| ())
 	}
 
 	/// Configures the [`Node`] instance to source its gossip data from the given RapidGossipSync
@@ -733,8 +761,9 @@ impl ArcedNodeBuilder {
 fn build_with_store_internal(
 	config: Arc<Config>, chain_data_source_config: Option<&ChainDataSourceConfig>,
 	gossip_source_config: Option<&GossipSourceConfig>,
-	liquidity_source_config: Option<&LiquiditySourceConfig>, seed_bytes: [u8; 64],
-	logger: Arc<FilesystemLogger>, kv_store: Arc<DynStore>,
+	liquidity_source_config: Option<&LiquiditySourceConfig>,
+	payjoin_config: Option<&PayjoinConfig>, seed_bytes: [u8; 64], logger: Arc<FilesystemLogger>,
+	kv_store: Arc<DynStore>,
 ) -> Result<Node, BuildError> {
 	// Initialize the status fields.
 	let is_listening = Arc::new(AtomicBool::new(false));
@@ -1201,6 +1230,25 @@ fn build_with_store_internal(
 	let (stop_sender, _) = tokio::sync::watch::channel(());
 	let (event_handling_stopped_sender, _) = tokio::sync::watch::channel(());
 
+	let payjoin_handler = payjoin_config.map(|pj_config| {
+		Arc::new(PayjoinHandler::new(
+			Arc::clone(&tx_sync),
+			Arc::clone(&event_queue),
+			Arc::clone(&logger),
+			pj_config.payjoin_relay.clone(),
+			Arc::clone(&payment_store),
+			Arc::clone(&wallet),
+		))
+	});
+
+	let is_listening = Arc::new(AtomicBool::new(false));
+	let latest_wallet_sync_timestamp = Arc::new(RwLock::new(None));
+	let latest_onchain_wallet_sync_timestamp = Arc::new(RwLock::new(None));
+	let latest_fee_rate_cache_update_timestamp = Arc::new(RwLock::new(None));
+	let latest_rgs_snapshot_timestamp = Arc::new(RwLock::new(None));
+	let latest_node_announcement_broadcast_timestamp = Arc::new(RwLock::new(None));
+	let latest_channel_monitor_archival_height = Arc::new(RwLock::new(None));
+
 	Ok(Node {
 		runtime,
 		stop_sender,
@@ -1213,6 +1261,7 @@ fn build_with_store_internal(
 		channel_manager,
 		chain_monitor,
 		output_sweeper,
+		payjoin_handler,
 		peer_manager,
 		onion_messenger,
 		connection_manager,

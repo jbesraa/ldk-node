@@ -71,6 +71,10 @@ pub(crate) type Broadcaster = crate::tx_broadcaster::TransactionBroadcaster<Arc<
 pub(crate) type Wallet =
 	crate::wallet::Wallet<Arc<Broadcaster>, Arc<OnchainFeeEstimator>, Arc<FilesystemLogger>>;
 
+pub(crate) type EventQueue = crate::event::EventQueue<Arc<FilesystemLogger>>;
+
+pub(crate) type PaymentStore = crate::payment::store::PaymentStore<Arc<FilesystemLogger>>;
+
 pub(crate) type KeysManager = crate::wallet::WalletKeysManager<
 	Arc<Broadcaster>,
 	Arc<OnchainFeeEstimator>,

@@ -1,5 +1,4 @@
 // This file is Copyright its original authors, visible in version control history.
-//
 // This file is licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 // http://www.apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. You may not use this file except in
@@ -106,7 +105,10 @@ pub use balance::{BalanceDetails, LightningBalance, PendingSweepBalance};
 pub use error::Error as NodeError;
 use error::Error;
 
+#[cfg(feature = "uniffi")]
+use crate::event::PayjoinPaymentFailureReason;
 pub use event::Event;
+use payment::payjoin::handler::PayjoinHandler;
 
 pub use io::utils::generate_entropy_mnemonic;
 
@@ -125,26 +127,24 @@ use config::{
 	PEER_RECONNECTION_INTERVAL, RGS_SYNC_INTERVAL,
 };
 use connection::ConnectionManager;
-use event::{EventHandler, EventQueue};
+use event::EventHandler;
 use gossip::GossipSource;
 use graph::NetworkGraph;
 use io::utils::write_node_metrics;
 use liquidity::LiquiditySource;
-use payment::store::PaymentStore;
 use payment::{
-	Bolt11Payment, Bolt12Payment, OnchainPayment, PaymentDetails, SpontaneousPayment,
-	UnifiedQrPayment,
+	Bolt11Payment, Bolt12Payment, OnchainPayment, PayjoinPayment, PaymentDetails,
+	SpontaneousPayment, UnifiedQrPayment,
 };
 use peer_store::{PeerInfo, PeerStore};
 use types::{
-	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, Graph,
-	KeysManager, OnionMessenger, PeerManager, Router, Scorer, Sweeper, Wallet,
+	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, EventQueue, Graph, KeysManager, OnionMessenger, PaymentStore, PeerManager, Router, Scorer, Sweeper, Wallet
 };
 pub use types::{ChannelDetails, PeerDetails, UserChannelId};
 
 use logger::{log_error, log_info, log_trace, FilesystemLogger, Logger};
 
-use lightning::chain::BestBlock;
+use lightning::chain::{BestBlock, Confirm};
 use lightning::events::bump_transaction::Wallet as LdkWallet;
 use lightning::impl_writeable_tlv_based;
 use lightning::ln::channel_state::ChannelShutdownState;
@@ -180,13 +180,14 @@ pub struct Node {
 	wallet: Arc<Wallet>,
 	chain_source: Arc<ChainSource>,
 	tx_broadcaster: Arc<Broadcaster>,
-	event_queue: Arc<EventQueue<Arc<FilesystemLogger>>>,
+	event_queue: Arc<EventQueue>,
 	channel_manager: Arc<ChannelManager>,
 	chain_monitor: Arc<ChainMonitor>,
 	output_sweeper: Arc<Sweeper>,
 	peer_manager: Arc<PeerManager>,
 	onion_messenger: Arc<OnionMessenger>,
 	connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
+	payjoin_handler: Option<Arc<PayjoinHandler>>,
 	keys_manager: Arc<KeysManager>,
 	network_graph: Arc<Graph>,
 	gossip_source: Arc<GossipSource>,
@@ -196,7 +197,7 @@ pub struct Node {
 	_router: Arc<Router>,
 	scorer: Arc<Mutex<Scorer>>,
 	peer_store: Arc<PeerStore<Arc<FilesystemLogger>>>,
-	payment_store: Arc<PaymentStore<Arc<FilesystemLogger>>>,
+	payment_store: Arc<PaymentStore>,
 	is_listening: Arc<AtomicBool>,
 	node_metrics: Arc<RwLock<NodeMetrics>>,
 }
@@ -949,6 +950,42 @@ impl Node {
 		))
 	}
 
+	/// Returns a Payjoin payment handler allowing to send Payjoin transactions
+	///
+	/// in order to utilize Payjoin functionality, it is necessary to configure a Payjoin relay
+	/// using [`set_payjoin_config`].
+	///
+	/// [`set_payjoin_config`]: crate::builder::NodeBuilder::set_payjoin_config
+	#[cfg(not(feature = "uniffi"))]
+	pub fn payjoin_payment(&self) -> PayjoinPayment {
+		let payjoin_handler = self.payjoin_handler.as_ref();
+		PayjoinPayment::new(
+			Arc::clone(&self.config),
+			Arc::clone(&self.logger),
+			payjoin_handler.map(Arc::clone),
+			Arc::clone(&self.runtime),
+			Arc::clone(&self.tx_broadcaster),
+		)
+	}
+
+	/// Returns a Payjoin payment handler allowing to send Payjoin transactions.
+	///
+	/// in order to utilize Payjoin functionality, it is necessary to configure a Payjoin relay
+	/// using [`set_payjoin_config`].
+	///
+	/// [`set_payjoin_config`]: crate::builder::NodeBuilder::set_payjoin_config
+	#[cfg(feature = "uniffi")]
+	pub fn payjoin_payment(&self) -> Arc<PayjoinPayment> {
+		let payjoin_handler = self.payjoin_handler.as_ref();
+		Arc::new(PayjoinPayment::new(
+			Arc::clone(&self.config),
+			Arc::clone(&self.logger),
+			payjoin_handler.map(Arc::clone),
+			Arc::clone(&self.runtime),
+			Arc::clone(&self.tx_broadcaster),
+		))
+	}
+
 	/// Retrieve a list of known channels.
 	pub fn list_channels(&self) -> Vec<ChannelDetails> {
 		self.channel_manager.list_channels().into_iter().map(|c| c.into()).collect()
@@ -1207,6 +1244,8 @@ impl Node {
 		let sync_cman = Arc::clone(&self.channel_manager);
 		let sync_cmon = Arc::clone(&self.chain_monitor);
 		let sync_sweeper = Arc::clone(&self.output_sweeper);
+		let sync_payjoin = &self.payjoin_handler.as_ref();
+
 		tokio::task::block_in_place(move || {
 			tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(
 				async move {
