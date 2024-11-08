@@ -145,7 +145,7 @@ pub use types::{ChannelDetails, PeerDetails, UserChannelId};
 
 use logger::{log_error, log_info, log_trace, FilesystemLogger, Logger};
 
-use lightning::chain::BestBlock;
+use lightning::chain::{BestBlock, Confirm};
 use lightning::events::bump_transaction::Wallet as LdkWallet;
 use lightning::impl_writeable_tlv_based;
 use lightning::ln::channel_state::ChannelShutdownState;
@@ -1307,21 +1307,7 @@ impl Node {
 		let sync_cman = Arc::clone(&self.channel_manager);
 		let sync_cmon = Arc::clone(&self.chain_monitor);
 		let sync_sweeper = Arc::clone(&self.output_sweeper);
-		let sync_logger = Arc::clone(&self.logger);
 		let sync_payjoin = &self.payjoin_handler.as_ref();
-		let mut confirmables = vec![
-			&*sync_cman as &(dyn Confirm + Sync + Send),
-			&*sync_cmon as &(dyn Confirm + Sync + Send),
-			&*sync_sweeper as &(dyn Confirm + Sync + Send),
-		];
-		if let Some(sync_payjoin) = sync_payjoin {
-			confirmables.push(sync_payjoin.as_ref() as &(dyn Confirm + Sync + Send));
-		}
-		let sync_wallet_timestamp = Arc::clone(&self.latest_wallet_sync_timestamp);
-		let sync_fee_rate_update_timestamp =
-			Arc::clone(&self.latest_fee_rate_cache_update_timestamp);
-		let sync_onchain_wallet_timestamp = Arc::clone(&self.latest_onchain_wallet_sync_timestamp);
-		let sync_monitor_archival_height = Arc::clone(&self.latest_channel_monitor_archival_height);
 
 		tokio::task::block_in_place(move || {
 			tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(
