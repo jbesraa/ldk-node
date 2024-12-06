@@ -106,7 +106,10 @@ pub use balance::{BalanceDetails, LightningBalance, PendingSweepBalance};
 pub use error::Error as NodeError;
 use error::Error;
 
+#[cfg(feature = "uniffi")]
+use crate::event::PayjoinPaymentFailureReason;
 pub use event::Event;
+use payment::payjoin::handler::PayjoinHandler;
 
 pub use io::utils::generate_entropy_mnemonic;
 
@@ -132,8 +135,8 @@ use io::utils::write_node_metrics;
 use liquidity::LiquiditySource;
 use payment::store::PaymentStore;
 use payment::{
-	Bolt11Payment, Bolt12Payment, OnchainPayment, PaymentDetails, SpontaneousPayment,
-	UnifiedQrPayment,
+	Bolt11Payment, Bolt12Payment, OnchainPayment, PayjoinPayment, PaymentDetails,
+	SpontaneousPayment, UnifiedQrPayment,
 };
 use peer_store::{PeerInfo, PeerStore};
 use types::{
@@ -187,6 +190,7 @@ pub struct Node {
 	peer_manager: Arc<PeerManager>,
 	onion_messenger: Arc<OnionMessenger>,
 	connection_manager: Arc<ConnectionManager<Arc<FilesystemLogger>>>,
+	payjoin_handler: Option<Arc<PayjoinHandler>>,
 	keys_manager: Arc<KeysManager>,
 	network_graph: Arc<Graph>,
 	gossip_source: Arc<GossipSource>,
@@ -960,6 +964,42 @@ impl Node {
 		))
 	}
 
+	/// Returns a Payjoin payment handler allowing to send Payjoin transactions
+	///
+	/// in order to utilize Payjoin functionality, it is necessary to configure a Payjoin relay
+	/// using [`set_payjoin_config`].
+	///
+	/// [`set_payjoin_config`]: crate::builder::NodeBuilder::set_payjoin_config
+	#[cfg(not(feature = "uniffi"))]
+	pub fn payjoin_payment(&self) -> PayjoinPayment {
+		let payjoin_handler = self.payjoin_handler.as_ref();
+		PayjoinPayment::new(
+			Arc::clone(&self.config),
+			Arc::clone(&self.logger),
+			payjoin_handler.map(Arc::clone),
+			Arc::clone(&self.runtime),
+			Arc::clone(&self.tx_broadcaster),
+		)
+	}
+
+	/// Returns a Payjoin payment handler allowing to send Payjoin transactions.
+	///
+	/// in order to utilize Payjoin functionality, it is necessary to configure a Payjoin relay
+	/// using [`set_payjoin_config`].
+	///
+	/// [`set_payjoin_config`]: crate::builder::NodeBuilder::set_payjoin_config
+	#[cfg(feature = "uniffi")]
+	pub fn payjoin_payment(&self) -> Arc<PayjoinPayment> {
+		let payjoin_handler = self.payjoin_handler.as_ref();
+		Arc::new(PayjoinPayment::new(
+			Arc::clone(&self.config),
+			Arc::clone(&self.logger),
+			payjoin_handler.map(Arc::clone),
+			Arc::clone(&self.runtime),
+			Arc::clone(&self.tx_broadcaster),
+		))
+	}
+
 	/// Retrieve a list of known channels.
 	pub fn list_channels(&self) -> Vec<ChannelDetails> {
 		self.channel_manager.list_channels().into_iter().map(|c| c.into()).collect()
@@ -1218,6 +1258,7 @@ impl Node {
 		let sync_cman = Arc::clone(&self.channel_manager);
 		let sync_cmon = Arc::clone(&self.chain_monitor);
 		let sync_sweeper = Arc::clone(&self.output_sweeper);
+
 		tokio::task::block_in_place(move || {
 			tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(
 				async move {
